@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from websocket import WebSocketApp
 
@@ -131,9 +131,9 @@ def _parse_timestamp(ts_str):
 class PolymarketDataFeed(DataFeed):
     """Polymarket CLOB order book WebSocket feed."""
 
-    def __init__(self, asset_ids, on_data=None, end_date=None, on_market_closed=None):
+    def __init__(self, asset_ids, on_book_update: Optional[Callable[[dict], None]] = None, end_date=None, on_market_closed=None):
         self.asset_ids = asset_ids
-        self.on_data = on_data
+        self._on_book_update = on_book_update
         self.on_market_closed = on_market_closed
         self._ws: WebSocketApp | None = None
         self._thread: threading.Thread | None = None
@@ -243,6 +243,7 @@ class PolymarketDataFeed(DataFeed):
         except json.JSONDecodeError:
             return
 
+        snapshots = None
         with self._lock:
             self._last_message_time = time.time()
             self._message_count += 1
@@ -252,11 +253,25 @@ class PolymarketDataFeed(DataFeed):
             if snapshots:
                 self._latest = snapshots[-1]
 
-        if self.on_data:
-            try:
-                self.on_data(data)
-            except Exception as e:
-                logger.error("on_data callback error: %s", e)
+        if self._on_book_update and snapshots:
+            for snap in snapshots:
+                tick = {
+                    "timestamp": snap.timestamp,
+                    "asset_id": snap.asset_id,
+                    "best_bid": snap.best_bid,
+                    "best_ask": snap.best_ask,
+                    "mid_price": snap.mid_price,
+                    "spread": snap.spread,
+                    "bid_volume": snap.bid_volume,
+                    "ask_volume": snap.ask_volume,
+                    "weighted_mid": snap.weighted_mid,
+                    "imbalance": snap.imbalance,
+                    "source": "polymarket",
+                }
+                try:
+                    self._on_book_update(tick)
+                except Exception as e:
+                    logger.error("on_book_update callback error: %s", e)
 
     def _on_error(self, _ws, error):
         self._error_count += 1

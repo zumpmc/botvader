@@ -93,23 +93,37 @@ def test_fetch_returns_most_recent_message():
 
 
 # ---------------------------------------------------------------------------
-# on_data callback
+# on_book_update callback
 # ---------------------------------------------------------------------------
 
-def test_on_data_callback_fires():
+def test_on_book_update_callback_fires():
     cb = MagicMock()
-    feed = PolymarketDataFeed(asset_ids=ASSET_IDS, on_data=cb)
+    feed = PolymarketDataFeed(asset_ids=ASSET_IDS, on_book_update=cb)
     _simulate_message(feed)
     cb.assert_called_once()
-    data = cb.call_args[0][0]
-    print(f"  on_data called with asset_id: {data.get('asset_id')}")
-    assert data["asset_id"] == "abc123"
+    tick = cb.call_args[0][0]
+    print(f"  on_book_update called with: {tick}")
+    assert tick["asset_id"] == "abc123"
+    assert tick["source"] == "polymarket"
+    assert tick["best_bid"] == 0.55
+    assert tick["best_ask"] == 0.60
+    assert tick["mid_price"] == pytest.approx(0.575)
 
 
-def test_on_data_not_required():
+def test_on_book_update_not_required():
     feed = PolymarketDataFeed(asset_ids=ASSET_IDS)
     _simulate_message(feed)  # should not raise
     print(f"  no callback set — no crash")
+
+
+def test_on_book_update_not_called_for_unparseable():
+    cb = MagicMock()
+    feed = PolymarketDataFeed(asset_ids=ASSET_IDS, on_book_update=cb)
+    # Message with no asset_id — parse_order_book returns None
+    msg = json.dumps({"event_type": "book", "bids": [], "asks": []})
+    _simulate_message(feed, msg)
+    cb.assert_not_called()
+    print(f"  callback not fired for unparseable message")
 
 
 # ---------------------------------------------------------------------------
