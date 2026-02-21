@@ -1,5 +1,11 @@
-from abc import ABC, abstractmethod                                         
-from typing import Any   
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dataFeed.FeedHealth import FeedHealth
+
 
 class DataFeed(ABC):
     """Abstract base class for pull-based data feeds."""
