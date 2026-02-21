@@ -2,8 +2,8 @@
 Quick integration tests for S3Publisher.
 
 Usage:
-    python -m tests.test_s3_publisher          # run write/read tests
-    python -m tests.test_s3_publisher --clean   # delete all test objects
+    python -m publisher.tests.test_s3_publisher          # run write/read tests
+    python -m publisher.tests.test_s3_publisher --clean   # delete all test objects
 """
 
 import json
