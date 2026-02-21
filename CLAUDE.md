@@ -12,12 +12,18 @@
 botvader/
 ├── dataFeed/
 │   ├── __init__.py          # Public exports for the dataFeed package
-│   ├── DataFeed.py          # Abstract base class defining the feed interface
+│   ├── DataFeed.py          # ABC — feed interface (start, stop, fetch, health, name)
 │   ├── FeedHealth.py        # FeedHealth dataclass + FeedStatus enum
+│   ├── MarketData.py        # ABC — Generic[T, E] interface (record, export)
 │   └── impl/                # Concrete DataFeed implementations go here
 ├── publisher/
-│   └── Publisher.py         # Publisher module
-├── tests/                   # All test files live here
+│   ├── __init__.py          # Public exports (Publisher, S3Publisher)
+│   ├── Publisher.py         # ABC — key/value publishing interface
+│   ├── S3Publisher.py       # Concrete S3 implementation
+│   └── tests/               # Publisher integration tests
+├── feedManager/
+│   ├── __init__.py          # Public exports (FeedManager)
+│   └── FeedManager.py       # ABC — orchestrator interface (create, run)
 └── CLAUDE.md
 ```
 
@@ -85,6 +91,33 @@ All function signatures, method parameters, and return types **must** include ty
 ```bash
 pytest tests/
 ```
+
+## Architecture — Data Flow
+
+```
+[1-n] DataFeeds  →  FeedManager  →  [1-n] Publishers
+                      ↕
+                   MarketData
+                 (internal state)
+```
+
+### How it works
+
+1. **DataFeeds** produce market data. Each feed implements `DataFeed` ABC (`start`, `stop`, `fetch`, `health`, `name`). Existing implementations: `BinanceDataFeed`, `KrakenDataFeed`, `PolymarketDataFeed`.
+
+2. **MarketData** accumulates feed data between publishes. It is a generic ABC (`MarketData[T, E]`) with two methods:
+   - `record(data: T)` — store incoming data from a feed
+   - `export() -> E` — export accumulated data for publishing
+
+   Subclasses bind `T` (input type) and `E` (export type) and decide storage strategy, whether to clear on export, etc.
+
+3. **FeedManager** orchestrates the pipeline. It is an ABC with two methods:
+   - `create(feeds, publishers, market_data)` — wire up all components
+   - `run()` — start the feed-to-publish loop
+
+   Subclasses decide threading model, polling vs callbacks, intervals, shutdown behavior, etc.
+
+4. **Publishers** persist/send the exported data. Each publisher implements `Publisher` ABC (`publish`, `publish_json`, `get`, `delete`, `list_keys`). Existing implementation: `S3Publisher`.
 
 ## Best Practices
 
