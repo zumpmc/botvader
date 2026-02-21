@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>botvader - login</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .box { background: #161b22; padding: 2rem; border-radius: 8px; border: 1px solid #30363d; width: 300px; }
+    h1 { margin: 0 0 1.5rem; font-size: 1.2rem; color: #58a6ff; }
+    input { width: 100%; padding: 0.5rem; margin-bottom: 1rem; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; font-family: monospace; box-sizing: border-box; }
+    button { width: 100%; padding: 0.5rem; background: #238636; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 1rem; }
+    button:hover { background: #2ea043; }
+    .error { color: #f85149; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>botvader</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="POST">
+      <input type="password" name="password" placeholder="password" autofocus>
+      <button type="submit">Login</button>
+    </form>
+  </div>
+</body>
+</html>
