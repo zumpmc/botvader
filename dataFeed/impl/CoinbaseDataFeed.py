@@ -2,18 +2,31 @@ import json
 import math
 import threading
 import time
+from datetime import datetime
 from typing import Callable, List, Optional
 
 import websocket
 
 from dataFeed.DataFeed import DataFeed
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
+from dataFeed.struct.Tick import Tick
 from publisher.Publisher import Publisher
 
 _WS_URL = "wss://advanced-trade-ws.coinbase.com"
 _STALE_THRESHOLD = 30.0
 _DOWN_THRESHOLD = 60.0
 _WINDOW_SECONDS = 300  # 5 minutes
+
+
+def _parse_coinbase_timestamp(ts_str: str) -> float:
+    """Parse a Coinbase ISO-8601 timestamp to a unix epoch float."""
+    if not ts_str:
+        return time.time()
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return time.time()
 
 
 def _next_window_boundary(now: float) -> float:
@@ -44,7 +57,7 @@ class CoinbaseDataFeed(DataFeed):
         self._error_count: int = 0
 
         # Batching state
-        self._buffer: List[dict] = []
+        self._buffer: List[Tick] = []
         self._window_start: float = 0.0
 
     @property
@@ -154,7 +167,7 @@ class CoinbaseDataFeed(DataFeed):
             return
 
         key = f"coinbase/{self.name}/{window_start:.6f}-{window_end:.6f}"
-        self._publisher.publish_json(key, ticks)
+        self._publisher.publish_json(key, [t.to_dict() for t in ticks])
 
     # -- WebSocket internals ---------------------------------------------------
 
@@ -194,22 +207,22 @@ class CoinbaseDataFeed(DataFeed):
         for event in events:
             trades = event.get("trades", [])
             for trade in trades:
-                tick = {
-                    "timestamp": trade.get("time", ""),
-                    "price": float(trade.get("price", 0)),
-                    "size": float(trade.get("size", 0)),
-                    "side": trade.get("side", ""),
-                    "source": "coinbase",
-                }
+                tick = Tick(
+                    timestamp=_parse_coinbase_timestamp(trade.get("time", "")),
+                    price=float(trade.get("price", 0)),
+                    size=float(trade.get("size", 0)),
+                    side=trade.get("side", ""),
+                    source="coinbase",
+                )
 
                 with self._lock:
-                    self._last_data = tick
+                    self._last_data = tick.to_dict()
                     self._last_message_time = time.time()
                     self._message_count += 1
                     self._buffer.append(tick)
 
                 if self._on_tick:
-                    self._on_tick(tick)
+                    self._on_tick(tick.to_dict())
 
     def _on_error(self, ws, error) -> None:
         self._error_count += 1

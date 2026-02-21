@@ -8,6 +8,7 @@ import websocket
 
 from dataFeed.DataFeed import DataFeed
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
+from dataFeed.struct.Tick import Tick
 
 _WS_URL = "wss://ws.kraken.com/v2"
 _STALE_THRESHOLD = 30.0
@@ -146,19 +147,19 @@ class KrakenDataFeed(DataFeed):
             else:
                 trade_ts = time.time()
 
-            tick = {
-                "timestamp": trade_ts,
-                "price": price,
-                "source": "kraken",
-            }
+            tick = Tick(
+                timestamp=trade_ts,
+                price=price,
+                source="kraken",
+            )
 
             with self._lock:
-                self._last_data = tick
+                self._last_data = tick.to_dict()
                 self._last_message_time = time.time()
                 self._message_count += 1
 
             if self._on_tick:
-                self._on_tick(tick)
+                self._on_tick(tick.to_dict())
 
     def _on_error(self, ws, error) -> None:
         self._error_count += 1
