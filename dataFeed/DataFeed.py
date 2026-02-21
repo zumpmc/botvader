@@ -1,3 +1,6 @@
+from abc import ABC, abstractmethod                                         
+from typing import Any   
+
 class DataFeed(ABC):
     """Abstract base class for pull-based data feeds."""
 
@@ -10,7 +13,7 @@ class DataFeed(ABC):
         ...
 
     @abstractmethod
-    def fetch(self) -> MarketData | None:
+    def fetch(self) -> dict:
         """Return the latest market data, or None if no data yet."""
         ...
 
