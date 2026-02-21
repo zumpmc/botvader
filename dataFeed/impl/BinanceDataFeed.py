@@ -7,6 +7,7 @@ import websocket
 
 from dataFeed.DataFeed import DataFeed
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
+from dataFeed.struct.Tick import Tick
 
 _WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade"
 _STALE_THRESHOLD = 30.0
@@ -114,19 +115,19 @@ class BinanceDataFeed(DataFeed):
         except json.JSONDecodeError:
             return
 
-        tick = {
-            "timestamp": float(raw.get("T", 0)) / 1000.0,
-            "price": float(raw.get("p", 0)),
-            "source": "binance",
-        }
+        tick = Tick(
+            timestamp=float(raw.get("T", 0)) / 1000.0,
+            price=float(raw.get("p", 0)),
+            source="binance",
+        )
 
         with self._lock:
-            self._last_data = tick
+            self._last_data = tick.to_dict()
             self._last_message_time = time.time()
             self._message_count += 1
 
         if self._on_tick:
-            self._on_tick(tick)
+            self._on_tick(tick.to_dict())
 
     def _on_error(self, ws, error) -> None:
         self._error_count += 1
