@@ -34,6 +34,7 @@ def _simulate_message(feed, raw=SAMPLE_TRADE):
 
 def test_name():
     feed = BinanceDataFeed()
+    print(f"  feed.name = {feed.name!r}")
     assert feed.name == "binance-btc-usd"
 
 
@@ -43,13 +44,16 @@ def test_name():
 
 def test_fetch_returns_none_before_any_data():
     feed = BinanceDataFeed()
-    assert feed.fetch() is None
+    result = feed.fetch()
+    print(f"  fetch() before data = {result}")
+    assert result is None
 
 
 def test_fetch_returns_latest_tick():
     feed = BinanceDataFeed()
     _simulate_message(feed)
     tick = feed.fetch()
+    print(f"  fetch() = {tick}")
     assert tick is not None
     assert tick["price"] == 68500.25
     assert tick["source"] == "binance"
@@ -62,6 +66,8 @@ def test_fetch_returns_most_recent_message():
     second = json.dumps({"T": 1700000001000, "p": "69000.00"})
     _simulate_message(feed, second)
     tick = feed.fetch()
+    print(f"  first msg price=68500.25, second msg price=69000.00")
+    print(f"  fetch() returned price={tick['price']} (should be latest)")
     assert tick["price"] == 69000.00
 
 
@@ -75,12 +81,14 @@ def test_on_tick_callback_fires():
     _simulate_message(feed)
     cb.assert_called_once()
     tick = cb.call_args[0][0]
+    print(f"  on_tick called with: {tick}")
     assert tick["price"] == 68500.25
 
 
 def test_on_tick_not_required():
     feed = BinanceDataFeed()
     _simulate_message(feed)  # should not raise
+    print(f"  no callback set — no crash")
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +98,7 @@ def test_on_tick_not_required():
 def test_health_down_before_start():
     feed = BinanceDataFeed()
     h = feed.health()
+    print(f"  health = {h.status.value}, last_update={h.last_update}, msg={h.message!r}")
     assert h.status == FeedStatus.DOWN
     assert h.last_update == 0.0
 
@@ -103,6 +112,7 @@ def test_health_ok_when_connected_and_fresh():
     feed._connected = True
     _simulate_message(feed)
     h = feed.health()
+    print(f"  health = {h.status.value}, last_update={h.last_update:.2f}, msg={h.message!r}")
     assert h.status == FeedStatus.OK
     assert "msgs=1" in h.message
     assert h.last_update > 0
@@ -118,6 +128,7 @@ def test_health_degraded_when_stale():
     _simulate_message(feed)
     feed._last_message_time = time.time() - 45
     h = feed.health()
+    print(f"  health = {h.status.value}, msg={h.message!r}")
     assert h.status == FeedStatus.DEGRADED
     assert "stale" in h.message
 
@@ -132,6 +143,7 @@ def test_health_down_when_data_too_old():
     _simulate_message(feed)
     feed._last_message_time = time.time() - 90
     h = feed.health()
+    print(f"  health = {h.status.value}, msg={h.message!r}")
     assert h.status == FeedStatus.DOWN
     assert "no data" in h.message
 
@@ -144,6 +156,7 @@ def test_health_down_when_geo_blocked():
     feed = BinanceDataFeed()
     feed._geo_blocked = True
     h = feed.health()
+    print(f"  health = {h.status.value}, msg={h.message!r}")
     assert h.status == FeedStatus.DOWN
     assert h.message == "geo-blocked"
 
@@ -155,18 +168,21 @@ def test_health_down_when_geo_blocked():
 def test_on_error_increments_count():
     feed = BinanceDataFeed()
     feed._on_error(None, Exception("timeout"))
+    print(f"  error_count after 1 error: {feed._error_count}")
     assert feed._error_count == 1
 
 
 def test_on_error_detects_geo_block():
     feed = BinanceDataFeed()
     feed._on_error(None, Exception("HTTP 451 Unavailable"))
+    print(f"  geo_blocked={feed._geo_blocked} (error: 'HTTP 451 Unavailable')")
     assert feed._geo_blocked is True
 
 
 def test_on_error_detects_forbidden():
     feed = BinanceDataFeed()
     feed._on_error(None, Exception("403 Forbidden"))
+    print(f"  geo_blocked={feed._geo_blocked} (error: '403 Forbidden')")
     assert feed._geo_blocked is True
 
 
@@ -178,12 +194,14 @@ def test_on_close_sets_disconnected():
     feed = BinanceDataFeed()
     feed._connected = True
     feed._on_close(None, 1000, "normal")
+    print(f"  connected={feed._connected} after close(1000)")
     assert feed._connected is False
 
 
 def test_on_close_451_sets_geo_blocked():
     feed = BinanceDataFeed()
     feed._on_close(None, 451, "geo-blocked")
+    print(f"  geo_blocked={feed._geo_blocked} after close(451)")
     assert feed._geo_blocked is True
 
 
@@ -194,6 +212,7 @@ def test_on_close_451_sets_geo_blocked():
 def test_on_message_ignores_bad_json():
     feed = BinanceDataFeed()
     feed._on_message(None, "not json {{{")
+    print(f"  fetch after bad json = {feed.fetch()}, msg_count={feed._message_count}")
     assert feed.fetch() is None
     assert feed._message_count == 0
 
@@ -213,6 +232,7 @@ def test_start_stop_lifecycle(mock_ws_cls):
     time.sleep(0.3)
     feed.stop()
 
+    print(f"  running={feed._running}, ws created={mock_ws_cls.called}")
     assert not feed._running
     mock_ws_cls.assert_called()
 
@@ -223,5 +243,6 @@ def test_start_is_idempotent():
         feed.start()
         thread1 = feed._thread
         feed.start()
+        print(f"  same thread after double start: {feed._thread is thread1}")
         assert feed._thread is thread1
         feed._running = False
