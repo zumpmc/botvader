@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
-from dataFeed.OrderBookMarketData import OrderBookMarketData
+from dataFeed.struct.OrderBookMarketData import OrderBookMarketData
 from dataFeed.impl.PolymarketDataFeed import (
     PolymarketDataFeed,
     parse_order_book,
@@ -104,10 +104,11 @@ def test_on_book_update_callback_fires():
     tick = cb.call_args[0][0]
     print(f"  on_book_update called with: {tick}")
     assert tick["asset_id"] == "abc123"
-    assert tick["source"] == "polymarket"
     assert tick["best_bid"] == 0.55
     assert tick["best_ask"] == 0.60
     assert tick["mid_price"] == pytest.approx(0.575)
+    assert "bids" in tick
+    assert "asks" in tick
 
 
 def test_on_book_update_not_required():

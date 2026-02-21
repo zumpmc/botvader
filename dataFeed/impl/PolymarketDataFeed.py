@@ -18,7 +18,7 @@ from websocket import WebSocketApp
 
 from dataFeed.DataFeed import DataFeed
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
-from dataFeed.OrderBookMarketData import OrderBookMarketData
+from dataFeed.struct.OrderBookMarketData import OrderBookMarketData
 
 logger = logging.getLogger("dataFeed.polymarket")
 
@@ -255,21 +255,8 @@ class PolymarketDataFeed(DataFeed):
 
         if self._on_book_update and snapshots:
             for snap in snapshots:
-                tick = {
-                    "timestamp": snap.timestamp,
-                    "asset_id": snap.asset_id,
-                    "best_bid": snap.best_bid,
-                    "best_ask": snap.best_ask,
-                    "mid_price": snap.mid_price,
-                    "spread": snap.spread,
-                    "bid_volume": snap.bid_volume,
-                    "ask_volume": snap.ask_volume,
-                    "weighted_mid": snap.weighted_mid,
-                    "imbalance": snap.imbalance,
-                    "source": "polymarket",
-                }
                 try:
-                    self._on_book_update(tick)
+                    self._on_book_update(snap.to_dict())
                 except Exception as e:
                     logger.error("on_book_update callback error: %s", e)
 
