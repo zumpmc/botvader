@@ -94,3 +94,22 @@ pytest tests/
 - **All feed implementations must report health** via a `health()` method returning `FeedHealth`.
 - **Document public APIs** with docstrings describing purpose, parameters, and return values.
 - **No code without tests.** If it's worth writing, it's worth testing.
+
+## S3 Key Convention
+
+All data feed implementations that publish to S3 **must** use this key format:
+
+```
+{exchange}/{collector_name}/{unix_timestamp_start}-{unix_timestamp_end}
+```
+
+**Example:** `coinbase/coinbase-btc-usd/1740000000.000000-1740000300.000000`
+
+### Rules
+
+- **Window size:** 5 minutes (300 seconds)
+- **Alignment:** Windows are aligned to clean 5-minute clock boundaries (`:00`, `:05`, `:10`, `:15`, `:20`, `:25`, `:30`, `:35`, `:40`, `:45`, `:50`, `:55`)
+- **Partial first window:** When a collector starts mid-window, the first flush covers the partial period from startup to the next boundary
+- **exchange:** The data source (e.g., `coinbase`, `binance`)
+- **collector_name:** Matches the feed's `name` property (e.g., `coinbase-btc-usd`)
+- **Timestamps:** Microsecond-precision floats (e.g., `1740000000.000000`), formatted with 6 decimal places
