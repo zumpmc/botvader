@@ -127,6 +127,7 @@ class PolymarketFeedManager(FeedManager):
 
     def stop(self) -> None:
         """Signal the run loop to exit and stop the current feed."""
+        logger.info("[%s] Stop requested", self.name)
         self._stop_event.set()
         with self._lock:
             if self._current_feed:
@@ -137,14 +138,24 @@ class PolymarketFeedManager(FeedManager):
     def _discover_market(self) -> Optional[dict]:
         """Discover the current market with exponential backoff on failure."""
         backoff = _INITIAL_BACKOFF
+        logger.info("[%s] Discovering market…", self.name)
         while not self._stop_event.is_set():
             market = self._discover_fn()
             if market is not None:
-                logger.debug("Discovered market: %s", market.get("slug"))
+                logger.info(
+                    "[%s] Discovered market — slug=%s, market_id=%s, "
+                    "start=%s, end=%s, tokens=%d",
+                    self.name,
+                    market.get("slug"),
+                    market.get("market_id"),
+                    market.get("event_start_time"),
+                    market.get("end_date"),
+                    len(market.get("token_ids", [])),
+                )
                 return market
 
             logger.warning(
-                "No %s market found, retrying in %.0fs", self._interval, backoff
+                "[%s] No market found, retrying in %.0fs", self.name, backoff
             )
             self._stop_event.wait(timeout=backoff)
             backoff = min(backoff * 2, _MAX_BACKOFF)
@@ -153,6 +164,13 @@ class PolymarketFeedManager(FeedManager):
 
     def _create_feed(self, market: dict) -> PolymarketDataFeed:
         """Create a PolymarketDataFeed wired to record into market_data."""
+        logger.info(
+            "[%s] Creating feed — slug=%s, token_ids=%s, end_date=%s",
+            self.name,
+            market.get("slug"),
+            market["token_ids"],
+            market.get("end_date"),
+        )
         return PolymarketDataFeed(
             asset_ids=market["token_ids"],
             end_date=market.get("end_date"),
@@ -180,10 +198,23 @@ class PolymarketFeedManager(FeedManager):
         else:
             timeout = _MIN_TIMEOUT
 
+        logger.info(
+            "[%s] Waiting for market close — slug=%s, timeout=%.0fs",
+            self.name,
+            market.get("slug"),
+            timeout,
+        )
+
         deadline = time.time() + timeout
         while not self._stop_event.is_set() and time.time() < deadline:
             if feed._closed_event.wait(timeout=1.0):
-                break
+                logger.info("[%s] Market closed — slug=%s", self.name, market.get("slug"))
+                return
+
+        if self._stop_event.is_set():
+            logger.info("[%s] Wait interrupted by stop signal", self.name)
+        else:
+            logger.warning("[%s] Wait timed out after %.0fs for slug=%s", self.name, timeout, market.get("slug"))
 
     def _publish(self, market: dict) -> None:
         """Export market_data and publish to all publishers."""
@@ -209,10 +240,21 @@ class PolymarketFeedManager(FeedManager):
         for publisher in self._publishers:
             try:
                 publisher.publish_json(key, payload)
+                logger.info(
+                    "[%s] Published %d snapshots to %s via %s",
+                    self.name,
+                    len(snapshots),
+                    key,
+                    type(publisher).__name__,
+                )
             except Exception as exc:
-                logger.error("Publish failed for %s: %s", key, exc)
-
-        logger.info("Published %d snapshots to %s", len(snapshots), key)
+                logger.error(
+                    "[%s] Publish failed — key=%s, publisher=%s, error=%s",
+                    self.name,
+                    key,
+                    type(publisher).__name__,
+                    exc,
+                )
 
     def _build_s3_key(self, market: dict) -> str:
         """Construct the S3 key from market metadata."""
