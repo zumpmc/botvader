@@ -8,12 +8,19 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 
 load_dotenv()
 
+from dataFeed.FeedHealth import FeedStatus
 from dataFeed.impl.BinanceDataFeed import BinanceDataFeed
+from dataFeed.impl.BitfinexDataFeed import BitfinexDataFeed
+from dataFeed.impl.BybitDataFeed import BybitDataFeed
 from dataFeed.impl.ChainlinkDataFeed import ChainlinkDataFeed
 from dataFeed.impl.CoinbaseDataFeed import CoinbaseDataFeed
+from dataFeed.impl.GeminiDataFeed import GeminiDataFeed
 from dataFeed.impl.KrakenDataFeed import KrakenDataFeed
+from dataFeed.impl.OKXDataFeed import OKXDataFeed
 from dataFeed.struct.OrderBookData import OrderBookData
+from dataFeed.struct.TickMarketData import TickMarketData
 from feedManager import PolymarketFeedManager
+from feedManager.impl import BtcPriceFeedManager
 from publisher import S3Publisher
 
 app = Flask(__name__)
@@ -34,6 +41,10 @@ _register(CoinbaseDataFeed(publisher=publisher))
 _register(BinanceDataFeed())
 _register(KrakenDataFeed())
 _register(ChainlinkDataFeed(publisher=publisher))
+_register(BitfinexDataFeed(publisher=publisher))
+_register(BybitDataFeed(publisher=publisher))
+_register(GeminiDataFeed(publisher=publisher))
+_register(OKXDataFeed(publisher=publisher))
 
 # Feed manager registry: name -> {"manager": FeedManager, "market_data": ..., "running": bool, "thread": ...}
 MANAGERS = {}
@@ -53,6 +64,27 @@ def _register_manager(manager):
 _register_manager(PolymarketFeedManager("5m"))
 _register_manager(PolymarketFeedManager("15m"))
 _register_manager(PolymarketFeedManager("4h"))
+
+
+def _register_btc_manager():
+    manager = BtcPriceFeedManager()
+    market_data = TickMarketData()
+    btc_feeds = [
+        BitfinexDataFeed(publisher=publisher),
+        BybitDataFeed(publisher=publisher),
+        GeminiDataFeed(publisher=publisher),
+        OKXDataFeed(publisher=publisher),
+    ]
+    manager.create(feeds=btc_feeds, publishers=[publisher], market_data=market_data)
+    MANAGERS["btc-price-feeds"] = {
+        "manager": manager,
+        "market_data": market_data,
+        "running": False,
+        "thread": None,
+    }
+
+
+_register_btc_manager()
 
 
 # -- Auth ------------------------------------------------------------------
@@ -148,6 +180,29 @@ def _get_manager_health(entry):
     manager = entry["manager"]
     if not entry["running"]:
         return {"status": "stopped", "message": "", "last_update": 0}
+
+    # BtcPriceFeedManager exposes a health() dict keyed by feed name
+    if isinstance(manager, BtcPriceFeedManager):
+        healths = manager.health()
+        if not healths:
+            return {"status": "ok", "message": "starting feeds...", "last_update": 0}
+        # Aggregate: worst status wins
+        worst = FeedStatus.OK
+        msgs = []
+        last_update = 0
+        for name, h in healths.items():
+            if h.status.value == "down":
+                worst = FeedStatus.DOWN
+            elif h.status.value == "degraded" and worst != FeedStatus.DOWN:
+                worst = FeedStatus.DEGRADED
+            if h.message:
+                msgs.append(f"{name}: {h.message}")
+            if h.last_update > last_update:
+                last_update = h.last_update
+        msg = "; ".join(msgs) if msgs else f"{len(healths)} feeds active"
+        return {"status": worst.value, "message": msg, "last_update": last_update}
+
+    # PolymarketFeedManager path
     with manager._lock:
         feed = manager._current_feed
     if feed is None:
@@ -176,9 +231,59 @@ def api_manager_detail(name):
     manager = entry["manager"]
     health = _get_manager_health(entry)
 
+    # BtcPriceFeedManager: aggregate metrics across all feeds
+    if isinstance(manager, BtcPriceFeedManager):
+        total_messages = 0
+        total_errors = 0
+        connected_count = 0
+        min_lag = None
+        feeds_detail = []
+
+        for feed in manager.feeds:
+            msg_count = getattr(feed, "_message_count", 0)
+            err_count = getattr(feed, "_error_count", 0)
+            total_messages += msg_count
+            total_errors += err_count
+            is_connected = getattr(feed, "_connected", False)
+            if is_connected:
+                connected_count += 1
+            last_msg = getattr(feed, "_last_message_time", 0)
+            lag = round(time.time() - last_msg, 2) if last_msg > 0 else None
+            if lag is not None and (min_lag is None or lag < min_lag):
+                min_lag = lag
+            feeds_detail.append({
+                "name": feed.name,
+                "connected": is_connected,
+                "message_count": msg_count,
+                "error_count": err_count,
+                "lag_seconds": lag,
+            })
+
+        market_data = entry["market_data"]
+        tick_count = len(market_data._ticks) if hasattr(market_data, "_ticks") else 0
+
+        result = {
+            "name": name,
+            "running": entry["running"],
+            "type": "btc-price",
+            "health": health,
+            "connected": connected_count > 0,
+            "connected_count": connected_count,
+            "total_feeds": len(manager.feeds),
+            "lag_seconds": min_lag,
+            "message_count": total_messages,
+            "error_count": total_errors,
+            "snapshot_count": tick_count,
+            "feeds": feeds_detail,
+            "last_data": None,
+        }
+        return jsonify(result)
+
+    # PolymarketFeedManager path
     result = {
         "name": name,
         "running": entry["running"],
+        "type": "polymarket",
         "interval": manager._interval,
         "health": health,
         "connected": False,

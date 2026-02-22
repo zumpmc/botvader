@@ -42,6 +42,12 @@
     .samples td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #21262d; }
     .samples .empty { color: #484f58; font-style: italic; }
 
+    .feeds-grid { display: flex; flex-direction: column; gap: 0.5rem; }
+    .feed-row { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #21262d; font-size: 0.9rem; }
+    .feed-row:last-child { border-bottom: none; }
+    .feed-row-name { font-weight: bold; }
+    .feed-row-stats { display: flex; gap: 1.5rem; color: #8b949e; }
+
     .actions { margin-top: 1rem; }
     .btn { padding: 0.5rem 1.5rem; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 0.95rem; }
     .btn-start { background: #238636; color: #fff; }
@@ -90,56 +96,132 @@
       if (res.status === 404) { window.location = '/'; return; }
       var f = await res.json();
 
-      // Accumulate order book snapshots client-side
-      if (f.last_data && f.last_data.timestamp) {
-        var isDuplicate = samples.length > 0 && samples[0].timestamp === f.last_data.timestamp;
-        if (!isDuplicate) {
-          samples.unshift(f.last_data);
-          if (samples.length > MAX_SAMPLES) samples.pop();
-        }
-      }
-
       var statusClass = 'dot-' + f.health.status;
       var statusLabel = f.health.status.toUpperCase();
 
-      // Order book section
-      var obHtml;
-      if (f.last_data) {
-        var d = f.last_data;
-        obHtml =
-          '<div class="ob-grid">' +
-            '<div><span class="ob-label">best bid</span><br><span class="ob-value">' + formatNum(d.best_bid) + '</span></div>' +
-            '<div><span class="ob-label">best ask</span><br><span class="ob-value">' + formatNum(d.best_ask) + '</span></div>' +
-            '<div><span class="ob-label">spread</span><br><span class="ob-value">' + formatNum(d.spread) + '</span></div>' +
-            '<div><span class="ob-label">mid price</span><br><span class="ob-value">' + formatNum(d.mid_price) + '</span></div>' +
-            '<div><span class="ob-label">weighted mid</span><br><span class="ob-value">' + formatNum(d.weighted_mid) + '</span></div>' +
-            '<div><span class="ob-label">imbalance</span><br><span class="ob-value">' + formatNum(d.imbalance) + '</span></div>' +
-            '<div><span class="ob-label">bid volume</span><br><span class="ob-value">' + formatNum(d.bid_volume, 0) + '</span></div>' +
-            '<div><span class="ob-label">ask volume</span><br><span class="ob-value">' + formatNum(d.ask_volume, 0) + '</span></div>' +
-            '<div><span class="ob-label">asset</span><br><span class="ob-value">' + (d.asset_id ? d.asset_id.substring(0, 12) + '...' : '\u2014') + '</span></div>' +
+      var detailHtml;
+      if (f.type === 'btc-price') {
+        // BTC Price Feed Manager — show per-feed status
+        var feedsHtml = '';
+        if (f.feeds && f.feeds.length > 0) {
+          feedsHtml = '<div class="feeds-grid">';
+          for (var i = 0; i < f.feeds.length; i++) {
+            var fd = f.feeds[i];
+            var fdDot = fd.connected ? 'dot-ok' : 'dot-stopped';
+            feedsHtml +=
+              '<div class="feed-row">' +
+                '<div class="feed-row-name"><span class="dot ' + fdDot + '" style="width:8px;height:8px;margin-right:6px;"></span>' + fd.name + '</div>' +
+                '<div class="feed-row-stats">' +
+                  '<span>' + fd.message_count.toLocaleString() + ' msgs</span>' +
+                  '<span>' + fd.error_count.toLocaleString() + ' errs</span>' +
+                  '<span>lag: ' + formatLag(fd.lag_seconds) + '</span>' +
+                '</div>' +
+              '</div>';
+          }
+          feedsHtml += '</div>';
+        } else {
+          feedsHtml = '<div class="ob-empty">No feeds configured</div>';
+        }
+
+        detailHtml =
+          '<div class="metrics">' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + f.message_count.toLocaleString() + '</div>' +
+              '<div class="metric-label">total messages</div>' +
+            '</div>' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + f.error_count.toLocaleString() + '</div>' +
+              '<div class="metric-label">total errors</div>' +
+            '</div>' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + (f.connected_count || 0) + ' / ' + (f.total_feeds || 0) + '</div>' +
+              '<div class="metric-label">connected</div>' +
+            '</div>' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + f.snapshot_count.toLocaleString() + '</div>' +
+              '<div class="metric-label">ticks buffered</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="order-book">' +
+            '<h2>feeds</h2>' +
+            feedsHtml +
           '</div>';
       } else {
-        obHtml = '<div class="ob-empty">No order book data yet</div>';
-      }
-
-      // Samples table
-      var samplesRows;
-      if (samples.length === 0) {
-        samplesRows = '<tr><td colspan="6" class="empty">No data yet \u2014 waiting for snapshots...</td></tr>';
-      } else {
-        samplesRows = '';
-        for (var i = 0; i < samples.length; i++) {
-          var s = samples[i];
-          samplesRows +=
-            '<tr>' +
-            '<td>' + formatTime(s.timestamp) + '</td>' +
-            '<td>' + formatNum(s.best_bid) + '</td>' +
-            '<td>' + formatNum(s.best_ask) + '</td>' +
-            '<td>' + formatNum(s.spread) + '</td>' +
-            '<td>' + formatNum(s.mid_price) + '</td>' +
-            '<td>' + formatNum(s.imbalance) + '</td>' +
-            '</tr>';
+        // Polymarket — order book view
+        // Order book section
+        var obHtml;
+        if (f.last_data) {
+          var d = f.last_data;
+          obHtml =
+            '<div class="ob-grid">' +
+              '<div><span class="ob-label">best bid</span><br><span class="ob-value">' + formatNum(d.best_bid) + '</span></div>' +
+              '<div><span class="ob-label">best ask</span><br><span class="ob-value">' + formatNum(d.best_ask) + '</span></div>' +
+              '<div><span class="ob-label">spread</span><br><span class="ob-value">' + formatNum(d.spread) + '</span></div>' +
+              '<div><span class="ob-label">mid price</span><br><span class="ob-value">' + formatNum(d.mid_price) + '</span></div>' +
+              '<div><span class="ob-label">weighted mid</span><br><span class="ob-value">' + formatNum(d.weighted_mid) + '</span></div>' +
+              '<div><span class="ob-label">imbalance</span><br><span class="ob-value">' + formatNum(d.imbalance) + '</span></div>' +
+              '<div><span class="ob-label">bid volume</span><br><span class="ob-value">' + formatNum(d.bid_volume, 0) + '</span></div>' +
+              '<div><span class="ob-label">ask volume</span><br><span class="ob-value">' + formatNum(d.ask_volume, 0) + '</span></div>' +
+              '<div><span class="ob-label">asset</span><br><span class="ob-value">' + (d.asset_id ? d.asset_id.substring(0, 12) + '...' : '\u2014') + '</span></div>' +
+            '</div>';
+        } else {
+          obHtml = '<div class="ob-empty">No order book data yet</div>';
         }
+
+        // Accumulate order book snapshots client-side
+        if (f.last_data && f.last_data.timestamp) {
+          var isDuplicate = samples.length > 0 && samples[0].timestamp === f.last_data.timestamp;
+          if (!isDuplicate) {
+            samples.unshift(f.last_data);
+            if (samples.length > MAX_SAMPLES) samples.pop();
+          }
+        }
+
+        var samplesRows;
+        if (samples.length === 0) {
+          samplesRows = '<tr><td colspan="6" class="empty">No data yet \u2014 waiting for snapshots...</td></tr>';
+        } else {
+          samplesRows = '';
+          for (var i = 0; i < samples.length; i++) {
+            var s = samples[i];
+            samplesRows +=
+              '<tr>' +
+              '<td>' + formatTime(s.timestamp) + '</td>' +
+              '<td>' + formatNum(s.best_bid) + '</td>' +
+              '<td>' + formatNum(s.best_ask) + '</td>' +
+              '<td>' + formatNum(s.spread) + '</td>' +
+              '<td>' + formatNum(s.mid_price) + '</td>' +
+              '<td>' + formatNum(s.imbalance) + '</td>' +
+              '</tr>';
+          }
+        }
+
+        detailHtml =
+          '<div class="metrics">' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + f.message_count.toLocaleString() + '</div>' +
+              '<div class="metric-label">messages</div>' +
+            '</div>' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + f.error_count.toLocaleString() + '</div>' +
+              '<div class="metric-label">errors</div>' +
+            '</div>' +
+            '<div class="metric">' +
+              '<div class="metric-value">' + (f.connected ? 'yes' : 'no') + '</div>' +
+              '<div class="metric-label">connected</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="order-book">' +
+            '<h2>latest order book</h2>' +
+            obHtml +
+          '</div>' +
+          '<div class="samples">' +
+            '<h2>recent snapshots</h2>' +
+            '<table>' +
+              '<thead><tr><th>time</th><th>bid</th><th>ask</th><th>spread</th><th>mid</th><th>imbalance</th></tr></thead>' +
+              '<tbody>' + samplesRows + '</tbody>' +
+            '</table>' +
+          '</div>';
       }
 
       document.getElementById('content').innerHTML =
@@ -156,35 +238,7 @@
             'snapshots: ' + f.snapshot_count.toLocaleString() +
           '</div>' +
         '</div>' +
-
-        '<div class="metrics">' +
-          '<div class="metric">' +
-            '<div class="metric-value">' + f.message_count.toLocaleString() + '</div>' +
-            '<div class="metric-label">messages</div>' +
-          '</div>' +
-          '<div class="metric">' +
-            '<div class="metric-value">' + f.error_count.toLocaleString() + '</div>' +
-            '<div class="metric-label">errors</div>' +
-          '</div>' +
-          '<div class="metric">' +
-            '<div class="metric-value">' + (f.connected ? 'yes' : 'no') + '</div>' +
-            '<div class="metric-label">connected</div>' +
-          '</div>' +
-        '</div>' +
-
-        '<div class="order-book">' +
-          '<h2>latest order book</h2>' +
-          obHtml +
-        '</div>' +
-
-        '<div class="samples">' +
-          '<h2>recent snapshots</h2>' +
-          '<table>' +
-            '<thead><tr><th>time</th><th>bid</th><th>ask</th><th>spread</th><th>mid</th><th>imbalance</th></tr></thead>' +
-            '<tbody>' + samplesRows + '</tbody>' +
-          '</table>' +
-        '</div>' +
-
+        detailHtml +
         '<div class="actions">' +
           '<button class="btn ' + (f.running ? 'btn-stop' : 'btn-start') + '"' +
           ' onclick="toggleManager(' + f.running + ')">' + (f.running ? 'Stop' : 'Start') + '</button>' +
