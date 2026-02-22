@@ -23,30 +23,37 @@ def _fetch_market(slug_prefix: str, window_seconds: int) -> dict | None:
     for offset in [0, window_seconds]:
         ts = current_window + offset
         slug = f"{slug_prefix}-{ts}"
+        logger.debug("Querying Gamma API — slug=%s", slug)
         try:
             resp = httpx.get(f"{GAMMA_API}/events", params={"slug": slug}, timeout=10.0)
             resp.raise_for_status()
             events = resp.json()
         except (httpx.HTTPError, httpx.TimeoutException) as e:
-            logger.warning("Gamma API request failed for %s: %s", slug, e)
+            logger.warning("Gamma API request failed — slug=%s, error=%s", slug, e)
             continue
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Gamma API returned invalid JSON for %s: %s", slug, e)
+            logger.warning("Gamma API returned invalid JSON — slug=%s, error=%s", slug, e)
             continue
 
         if not events or not isinstance(events, list):
+            logger.debug("No events returned for slug=%s", slug)
             continue
 
         event = events[0]
         markets = event.get("markets", [])
         if not markets or not markets[0].get("acceptingOrders"):
+            logger.info(
+                "Market not accepting orders — slug=%s, markets_count=%d",
+                slug,
+                len(markets),
+            )
             continue
 
         market = markets[0]
         try:
             token_ids = json.loads(market.get("clobTokenIds", "[]"))
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning("Failed to parse clobTokenIds for %s: %s", slug, e)
+            logger.warning("Failed to parse clobTokenIds — slug=%s, error=%s", slug, e)
             continue
 
         try:
@@ -55,8 +62,18 @@ def _fetch_market(slug_prefix: str, window_seconds: int) -> dict | None:
             outcomes = []
 
         url = f"https://polymarket.com/event/{event['slug']}"
-        logger.debug("Found: %s", event.get("title", "?"))
         description = market.get("description", "")
+        logger.info(
+            "Discovered market — title=%s, slug=%s, market_id=%s, "
+            "outcomes=%s, tokens=%d, start=%s, end=%s",
+            event.get("title", "?"),
+            event["slug"],
+            market.get("id"),
+            outcomes,
+            len(token_ids),
+            event.get("startTime"),
+            event.get("endDate"),
+        )
         return {
             "url": url,
             "title": event["title"],
@@ -71,7 +88,12 @@ def _fetch_market(slug_prefix: str, window_seconds: int) -> dict | None:
             "end_date": event.get("endDate"),
         }
 
-    logger.warning("No active BTC %ds market found", window_seconds)
+    logger.warning(
+        "No active BTC market found — prefix=%s, window=%ds, checked_window=%d",
+        slug_prefix,
+        window_seconds,
+        current_window,
+    )
     return None
 
 

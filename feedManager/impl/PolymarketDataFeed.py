@@ -171,13 +171,21 @@ class PolymarketDataFeed(DataFeed):
         if self._running:
             return
         self._running = True
+        logger.info(
+            "Starting Polymarket feed — asset_ids=%s, end_date=%s",
+            self.asset_ids,
+            self._end_dt.isoformat() if self._end_dt else "none",
+        )
         self._thread = threading.Thread(target=self._connect, daemon=True)
         self._thread.start()
         if self._end_dt:
             self._monitor_thread = threading.Thread(target=self._monitor_market_close, daemon=True)
             self._monitor_thread.start()
-        self._connected.wait(timeout=10)
-        logger.debug("Polymarket feed started")
+        connected = self._connected.wait(timeout=10)
+        if connected:
+            logger.info("Polymarket feed started — WebSocket connected")
+        else:
+            logger.warning("Polymarket feed start — WebSocket connection timed out after 10s")
 
     def stop(self) -> None:
         self._running = False
@@ -187,7 +195,11 @@ class PolymarketDataFeed(DataFeed):
             self._thread.join(timeout=5)
             self._thread = None
         self._closed_event.set()
-        logger.debug("Polymarket feed stopped")
+        logger.info(
+            "Polymarket feed stopped — total_msgs=%d, errors=%d",
+            self._message_count,
+            self._error_count,
+        )
 
     def fetch(self) -> OrderBookMarketData | None:
         with self._lock:
@@ -228,7 +240,11 @@ class PolymarketDataFeed(DataFeed):
     # -- WebSocket callbacks ---------------------------------------------------
 
     def _on_open(self, _ws):
-        logger.debug("Polymarket WS connected")
+        logger.info(
+            "WebSocket connected — subscribing to %d asset(s): %s",
+            len(self.asset_ids),
+            self.asset_ids,
+        )
         self._connected.set()
         _ws.send(json.dumps({
             "assets_ids": self.asset_ids,
@@ -241,6 +257,7 @@ class PolymarketDataFeed(DataFeed):
         try:
             data = json.loads(message)
         except json.JSONDecodeError:
+            logger.warning("Received non-JSON WebSocket message (%d bytes)", len(message))
             return
 
         snapshots = None
@@ -253,6 +270,14 @@ class PolymarketDataFeed(DataFeed):
             if snapshots:
                 self._latest = snapshots[-1]
 
+            if self._message_count % 100 == 0:
+                logger.info(
+                    "Feed stats — msgs=%d, snapshots_collected=%d, errors=%d",
+                    self._message_count,
+                    len(self._collected_data),
+                    self._error_count,
+                )
+
         if self._on_book_update and snapshots:
             for snap in snapshots:
                 try:
@@ -262,12 +287,18 @@ class PolymarketDataFeed(DataFeed):
 
     def _on_error(self, _ws, error):
         self._error_count += 1
-        logger.debug("Polymarket WS error: %s", error)
+        logger.warning("WebSocket error (#%d): %s", self._error_count, error)
 
     def _on_close(self, _ws, close_status_code, _close_msg):
-        logger.debug("Polymarket WS closed (code=%s)", close_status_code)
+        logger.info(
+            "WebSocket closed — code=%s, msg=%s, total_msgs=%d",
+            close_status_code,
+            _close_msg,
+            self._message_count,
+        )
         self._connected.clear()
         if self._running:
+            logger.info("Reconnecting in 5s…")
             time.sleep(5)
             self._connect()
 
@@ -286,6 +317,7 @@ class PolymarketDataFeed(DataFeed):
 
     def _connect(self):
         furl = f"{WS_URL}/ws/{MARKET_CHANNEL}"
+        logger.info("Connecting to %s", furl)
         self._ws = WebSocketApp(
             furl,
             on_message=self._on_message,
@@ -298,6 +330,7 @@ class PolymarketDataFeed(DataFeed):
     # -- Extra methods (beyond DataFeed ABC) -----------------------------------
 
     def subscribe(self, asset_ids):
+        logger.info("Subscribing to asset_ids=%s", asset_ids)
         if self._ws:
             self._ws.send(json.dumps({
                 "assets_ids": asset_ids,
@@ -305,6 +338,7 @@ class PolymarketDataFeed(DataFeed):
             }))
 
     def unsubscribe(self, asset_ids):
+        logger.info("Unsubscribing from asset_ids=%s", asset_ids)
         if self._ws:
             self._ws.send(json.dumps({
                 "assets_ids": asset_ids,
@@ -319,12 +353,19 @@ class PolymarketDataFeed(DataFeed):
 
     def _monitor_market_close(self):
         """Poll until the market end time is reached, then shut down."""
+        logger.info("Market close monitor started — end_dt=%s", self._end_dt.isoformat())
         while self._running and self._end_dt:
             now = datetime.now(timezone.utc)
+            remaining = (self._end_dt - now).total_seconds()
             if now >= self._end_dt:
-                logger.debug("Market end time reached")
+                logger.info(
+                    "Market end time reached — collected %d messages",
+                    self._message_count,
+                )
                 self._fire_market_closed()
                 return
+            if remaining <= 10:
+                logger.debug("Market closing in %.1fs", remaining)
             time.sleep(1)
 
     def _fire_market_closed(self):
@@ -340,4 +381,8 @@ class PolymarketDataFeed(DataFeed):
         if self.on_market_closed:
             with self._lock:
                 data_copy = list(self._collected_data)
+            logger.info(
+                "Firing market closed callback — collected_messages=%d",
+                len(data_copy),
+            )
             self.on_market_closed(data_copy)
