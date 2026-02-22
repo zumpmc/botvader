@@ -7,6 +7,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 load_dotenv()
 
 from dataFeed.impl.BinanceDataFeed import BinanceDataFeed
+from dataFeed.impl.ChainlinkDataFeed import ChainlinkDataFeed
 from dataFeed.impl.CoinbaseDataFeed import CoinbaseDataFeed
 from dataFeed.impl.KrakenDataFeed import KrakenDataFeed
 from publisher import S3Publisher
@@ -28,6 +29,7 @@ def _register(feed):
 _register(CoinbaseDataFeed(publisher=publisher))
 _register(BinanceDataFeed())
 _register(KrakenDataFeed())
+_register(ChainlinkDataFeed(publisher=publisher))
 
 
 # -- Auth ------------------------------------------------------------------
