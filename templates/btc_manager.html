@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>botvader - {{ manager_name }}</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .header-left { display: flex; align-items: center; gap: 1rem; }
+    .back { color: #8b949e; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { color: #c9d1d9; }
+    h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
+    a.logout { color: #8b949e; text-decoration: none; }
+    a.logout:hover { color: #c9d1d9; }
+
+    .status-bar { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .status-left { display: flex; align-items: center; gap: 0.5rem; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+    .dot-ok { background: #3fb950; }
+    .dot-degraded { background: #d29922; }
+    .dot-down { background: #f85149; }
+    .dot-stopped { background: #484f58; }
+    .status-text { font-size: 1rem; font-weight: bold; }
+    .status-right { text-align: right; color: #8b949e; font-size: 0.85rem; }
+    .health-msg { color: #8b949e; font-size: 0.85rem; margin-top: 0.3rem; }
+
+    .metrics { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .metric { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; flex: 1; text-align: center; }
+    .metric-value { font-size: 1.6rem; font-weight: bold; color: #c9d1d9; }
+    .metric-label { font-size: 0.8rem; color: #8b949e; margin-top: 0.3rem; }
+
+    .feed-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1rem; }
+    .feed-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; }
+    .feed-card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .feed-card-name { font-weight: bold; font-size: 0.95rem; }
+    .feed-card-stats { font-size: 0.8rem; color: #8b949e; line-height: 1.6; }
+    .feed-card-price { font-size: 1.3rem; font-weight: bold; color: #c9d1d9; margin-top: 0.4rem; }
+    .feed-card-price-label { font-size: 0.75rem; color: #8b949e; }
+
+    .samples { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; }
+    .samples h2 { margin: 0 0 0.8rem; font-size: 1rem; color: #58a6ff; }
+    .samples table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .samples th { text-align: left; color: #8b949e; padding: 0.4rem 0.6rem; border-bottom: 1px solid #30363d; }
+    .samples td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #21262d; }
+    .samples .empty { color: #484f58; font-style: italic; }
+
+    .actions { margin-top: 1rem; }
+    .btn { padding: 0.5rem 1.5rem; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 0.95rem; }
+    .btn-start { background: #238636; color: #fff; }
+    .btn-start:hover { background: #2ea043; }
+    .btn-stop { background: #da3633; color: #fff; }
+    .btn-stop:hover { background: #f85149; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <a class="back" href="/">&larr; dashboard</a>
+      <h1>{{ manager_name }}</h1>
+    </div>
+    <a class="logout" href="/logout">logout</a>
+  </div>
+
+  <div id="content">Loading...</div>
+
+  <script>
+    var MGR_NAME = "{{ manager_name }}";
+    var MAX_SAMPLES = 20;
+    var samples = [];
+
+    function formatTime(epoch) {
+      if (!epoch || epoch === 0) return '\u2014';
+      var d = new Date(epoch * 1000);
+      return d.toLocaleTimeString();
+    }
+
+    function formatPrice(v) {
+      if (v == null) return '\u2014';
+      return '$' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatLag(seconds) {
+      if (seconds == null) return '\u2014';
+      if (seconds < 1) return (seconds * 1000).toFixed(0) + 'ms';
+      if (seconds < 60) return seconds.toFixed(1) + 's';
+      return (seconds / 60).toFixed(1) + 'm';
+    }
+
+    async function loadManager() {
+      var res = await fetch('/api/managers/' + MGR_NAME);
+      if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
+      if (res.status === 404) { window.location = '/'; return; }
+      var f = await res.json();
+
+      // Accumulate ticks from all feeds client-side
+      if (f.feeds) {
+        for (var i = 0; i < f.feeds.length; i++) {
+          var feed = f.feeds[i];
+          if (feed.last_tick && feed.last_tick.timestamp) {
+            var isDuplicate = samples.length > 0 && samples[0].timestamp === feed.last_tick.timestamp && samples[0].source === feed.last_tick.source;
+            if (!isDuplicate) {
+              samples.unshift(feed.last_tick);
+              if (samples.length > MAX_SAMPLES) samples.pop();
+            }
+          }
+        }
+      }
+
+      var statusClass = 'dot-' + f.health.status;
+      var statusLabel = f.health.status.toUpperCase();
+
+      // Feed cards
+      var feedCardsHtml = '';
+      if (f.feeds) {
+        for (var i = 0; i < f.feeds.length; i++) {
+          var feed = f.feeds[i];
+          var fdot = 'dot-' + feed.health.status;
+          var price = (feed.last_tick && feed.last_tick.price) ? formatPrice(feed.last_tick.price) : '\u2014';
+          feedCardsHtml +=
+            '<div class="feed-card">' +
+              '<div class="feed-card-header">' +
+                '<span class="dot ' + fdot + '"></span>' +
+                '<span class="feed-card-name">' + feed.name + '</span>' +
+              '</div>' +
+              '<div class="feed-card-stats">' +
+                'connected: ' + (feed.connected ? 'yes' : 'no') + '<br>' +
+                'messages: ' + feed.message_count.toLocaleString() + '<br>' +
+                'errors: ' + feed.error_count.toLocaleString() + '<br>' +
+                'lag: ' + formatLag(feed.lag_seconds) +
+              '</div>' +
+              '<div class="feed-card-price">' + price + '</div>' +
+              '<div class="feed-card-price-label">latest price</div>' +
+            '</div>';
+        }
+      }
+
+      // Samples table
+      var samplesRows;
+      if (samples.length === 0) {
+        samplesRows = '<tr><td colspan="5" class="empty">No data yet \u2014 waiting for ticks...</td></tr>';
+      } else {
+        samplesRows = '';
+        for (var i = 0; i < samples.length; i++) {
+          var s = samples[i];
+          samplesRows +=
+            '<tr>' +
+            '<td>' + formatTime(s.timestamp) + '</td>' +
+            '<td>' + formatPrice(s.price) + '</td>' +
+            '<td>' + (s.source || '\u2014') + '</td>' +
+            '<td>' + (s.size != null ? Number(s.size).toFixed(6) : '\u2014') + '</td>' +
+            '<td>' + (s.side || '\u2014') + '</td>' +
+            '</tr>';
+        }
+      }
+
+      var onlineCount = 0;
+      if (f.feeds) {
+        for (var i = 0; i < f.feeds.length; i++) {
+          if (f.feeds[i].connected) onlineCount++;
+        }
+      }
+
+      document.getElementById('content').innerHTML =
+        '<div class="status-bar">' +
+          '<div>' +
+            '<div class="status-left">' +
+              '<span class="dot ' + statusClass + '"></span>' +
+              '<span class="status-text">' + statusLabel + '</span>' +
+            '</div>' +
+            '<div class="health-msg">' + (f.health.message || '') + '</div>' +
+          '</div>' +
+          '<div class="status-right">' +
+            'ticks buffered: ' + (f.tick_count || 0).toLocaleString() +
+          '</div>' +
+        '</div>' +
+
+        '<div class="metrics">' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + (f.total_messages || 0).toLocaleString() + '</div>' +
+            '<div class="metric-label">total messages</div>' +
+          '</div>' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + (f.total_errors || 0).toLocaleString() + '</div>' +
+            '<div class="metric-label">total errors</div>' +
+          '</div>' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + onlineCount + '/' + (f.feeds ? f.feeds.length : 0) + '</div>' +
+            '<div class="metric-label">feeds online</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="feed-cards">' + feedCardsHtml + '</div>' +
+
+        '<div class="samples">' +
+          '<h2>recent ticks</h2>' +
+          '<table>' +
+            '<thead><tr><th>time</th><th>price</th><th>source</th><th>size</th><th>side</th></tr></thead>' +
+            '<tbody>' + samplesRows + '</tbody>' +
+          '</table>' +
+        '</div>' +
+
+        '<div class="actions">' +
+          '<button class="btn ' + (f.running ? 'btn-stop' : 'btn-start') + '"' +
+          ' onclick="toggleManager(' + f.running + ')">' + (f.running ? 'Stop' : 'Start') + '</button>' +
+        '</div>';
+    }
+
+    async function toggleManager(running) {
+      var action = running ? 'stop' : 'start';
+      await fetch('/api/managers/' + MGR_NAME + '/' + action, { method: 'POST' });
+      if (action === 'stop') samples = [];
+      loadManager();
+    }
+
+    loadManager();
+    setInterval(loadManager, 3000);
+  </script>
+</body>
+</html>
