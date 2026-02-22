@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>botvader - dashboard</title>
+  <title>death-star-farm - dashboard</title>
   <style>
     body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
     h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
+    .nav { display: flex; gap: 1rem; }
     a.logout { color: #8b949e; text-decoration: none; }
     a.logout:hover { color: #c9d1d9; }
     .section-title { color: #8b949e; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.8rem; }
@@ -30,8 +31,12 @@
 </head>
 <body>
   <div class="header">
-    <h1>botvader</h1>
-    <a class="logout" href="/logout">logout</a>
+    <h1>death-star-farm</h1>
+    <div class="nav">
+      <a class="logout" href="/storage">storage</a>
+      <a class="logout" href="/debug">debug</a>
+      <a class="logout" href="/logout">logout</a>
+    </div>
   </div>
   <div class="section-title">feeds</div>
   <div class="feeds" id="feeds">Loading...</div>

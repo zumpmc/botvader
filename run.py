@@ -15,6 +15,8 @@ from dataFeed.impl.KrakenDataFeed import KrakenDataFeed
 from dataFeed.struct.OrderBookData import OrderBookData
 from feedManager import PolymarketFeedManager
 from publisher import S3Publisher
+from blueprints.storage import storage_bp, init_storage
+from blueprints.debug import debug_bp, init_debug
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -64,6 +66,14 @@ def login_required(f):
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
+
+
+# -- Blueprints ----------------------------------------------------------------
+
+init_storage(publisher, login_required)
+init_debug(login_required)
+app.register_blueprint(storage_bp)
+app.register_blueprint(debug_bp)
 
 
 @app.route("/login", methods=["GET", "POST"])

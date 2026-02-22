@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>death-star-farm - storage</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
+    .nav { display: flex; gap: 1rem; }
+    .nav a { color: #8b949e; text-decoration: none; }
+    .nav a:hover { color: #c9d1d9; }
+    .breadcrumb { margin-bottom: 1rem; color: #8b949e; }
+    .breadcrumb a { color: #58a6ff; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .listing { max-width: 800px; }
+    .item { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.6rem 1rem; margin-bottom: 0.4rem; cursor: pointer; }
+    .item:hover { border-color: #58a6ff; }
+    .folder { color: #58a6ff; }
+    .object { color: #c9d1d9; }
+    .viewer { margin-top: 1.5rem; max-width: 800px; }
+    .viewer-header { color: #8b949e; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; overflow-x: auto; max-height: 600px; overflow-y: auto; font-size: 0.85rem; }
+    .loading { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>storage</h1>
+    <div class="nav">
+      <a href="/">dashboard</a>
+      <a href="/debug">debug</a>
+      <a href="/logout">logout</a>
+    </div>
+  </div>
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <div class="listing" id="listing"><span class="loading">Loading...</span></div>
+  <div class="viewer" id="viewer"></div>
+  <script>
+    let currentPrefix = '';
+
+    function renderBreadcrumb(prefix) {
+      const el = document.getElementById('breadcrumb');
+      const parts = prefix.split('/').filter(Boolean);
+      let html = '<a href="#" onclick="navigate(\'\'); return false;">root</a>';
+      let path = '';
+      parts.forEach(p => {
+        path += p + '/';
+        const pp = path;
+        html += ' / <a href="#" onclick="navigate(\'' + pp + '\'); return false;">' + p + '</a>';
+      });
+      el.innerHTML = html;
+    }
+
+    async function navigate(prefix) {
+      currentPrefix = prefix;
+      document.getElementById('viewer').innerHTML = '';
+      renderBreadcrumb(prefix);
+      const res = await fetch('/api/storage?prefix=' + encodeURIComponent(prefix));
+      if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
+      const data = await res.json();
+      const listing = document.getElementById('listing');
+      listing.innerHTML = '';
+
+      data.folders.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'item folder';
+        div.textContent = f;
+        div.onclick = () => navigate(prefix + f);
+        listing.appendChild(div);
+      });
+
+      data.objects.forEach(o => {
+        const div = document.createElement('div');
+        div.className = 'item object';
+        div.textContent = o.key.split('/').pop();
+        div.onclick = () => viewObject(o.full_key, o.key);
+        listing.appendChild(div);
+      });
+
+      if (data.folders.length === 0 && data.objects.length === 0) {
+        listing.innerHTML = '<span class="loading">Empty</span>';
+      }
+    }
+
+    async function viewObject(fullKey, displayKey) {
+      const viewer = document.getElementById('viewer');
+      viewer.innerHTML = '<span class="loading">Loading...</span>';
+      const res = await fetch('/api/storage/object?key=' + encodeURIComponent(fullKey));
+      const result = await res.json();
+      if (result.error) {
+        viewer.innerHTML = '<pre style="color:#f85149;">' + result.error + '</pre>';
+        return;
+      }
+      viewer.innerHTML =
+        '<div class="viewer-header">' + displayKey + '</div>' +
+        '<pre>' + JSON.stringify(result.data, null, 2) + '</pre>';
+    }
+
+    navigate('');
+  </script>
+</body>
+</html>
