@@ -8,11 +8,14 @@
     h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
     a.logout { color: #8b949e; text-decoration: none; }
     a.logout:hover { color: #c9d1d9; }
+    .section-title { color: #8b949e; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.8rem; }
     .feeds { display: flex; flex-direction: column; gap: 1rem; max-width: 600px; }
     .feed { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
     .feed-info { flex: 1; }
     .feed-name { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .feed-health { font-size: 0.85rem; color: #8b949e; }
+    .feed-link { color: #58a6ff; text-decoration: none; }
+    .feed-link:hover { text-decoration: underline; }
     .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
     .status-ok { background: #3fb950; }
     .status-degraded { background: #d29922; }
@@ -30,39 +33,57 @@
     <h1>botvader</h1>
     <a class="logout" href="/logout">logout</a>
   </div>
+  <div class="section-title">feeds</div>
   <div class="feeds" id="feeds">Loading...</div>
+  <div class="section-title">feed managers</div>
+  <div class="feeds" id="managers">Loading...</div>
   <script>
-    async function loadFeeds() {
-      const res = await fetch('/api/feeds');
-      if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
-      const feeds = await res.json();
-      const container = document.getElementById('feeds');
+    async function loadAll() {
+      const [feedRes, mgrRes] = await Promise.all([
+        fetch('/api/feeds'),
+        fetch('/api/managers'),
+      ]);
+      if (feedRes.status === 401 || feedRes.redirected) { window.location = '/login'; return; }
+
+      const feeds = await feedRes.json();
+      const managers = await mgrRes.json();
+
+      renderCards(document.getElementById('feeds'), feeds, 'feed');
+      renderCards(document.getElementById('managers'), managers, 'manager');
+    }
+
+    function renderCards(container, items, type) {
       container.innerHTML = '';
-      feeds.forEach(f => {
+      items.forEach(f => {
         const div = document.createElement('div');
         div.className = 'feed';
         const statusClass = 'status-' + f.health.status;
-        const msg = f.health.message ? ' — ' + f.health.message : '';
-        div.innerHTML = `
-          <div class="feed-info">
-            <div class="feed-name"><span class="status ${statusClass}"></span>${f.name}</div>
-            <div class="feed-health">${f.health.status}${msg}</div>
-          </div>
-          <button class="btn ${f.running ? 'btn-stop' : 'btn-start'}"
-                  onclick="toggle('${f.name}', ${f.running})">${f.running ? 'Stop' : 'Start'}</button>
-        `;
+        const msg = f.health.message ? ' \u2014 ' + f.health.message : '';
+        const linkHref = type === 'manager' ? '/manager/' + f.name : null;
+        const nameHtml = linkHref
+          ? '<a href="' + linkHref + '" class="feed-link">' + f.name + '</a>'
+          : f.name;
+        div.innerHTML =
+          '<div class="feed-info">' +
+            '<div class="feed-name"><span class="status ' + statusClass + '"></span>' + nameHtml + '</div>' +
+            '<div class="feed-health">' + f.health.status + msg + '</div>' +
+          '</div>' +
+          '<button class="btn ' + (f.running ? 'btn-stop' : 'btn-start') + '"' +
+          ' onclick="toggle(\'' + type + '\', \'' + f.name + '\', ' + f.running + ')">' +
+          (f.running ? 'Stop' : 'Start') + '</button>';
         container.appendChild(div);
       });
     }
 
-    async function toggle(name, running) {
+    async function toggle(type, name, running) {
       const action = running ? 'stop' : 'start';
-      await fetch('/api/feeds/' + name + '/' + action, { method: 'POST' });
-      loadFeeds();
+      const base = type === 'manager' ? '/api/managers/' : '/api/feeds/';
+      await fetch(base + name + '/' + action, { method: 'POST' });
+      loadAll();
     }
 
-    loadFeeds();
-    setInterval(loadFeeds, 3000);
+    loadAll();
+    setInterval(loadAll, 3000);
   </script>
 </body>
 </html>
