@@ -109,20 +109,16 @@ def _weighted_mid(bids, asks):
 
 
 def _parse_timestamp(ts_str):
-    """Parse timestamp string to a Unix epoch float in **seconds**.
+    """Parse a Polymarket ms-epoch timestamp string to Unix seconds.
 
-    Polymarket WebSocket events may send timestamps as milliseconds.
-    Values above ``1e10`` are assumed to be in milliseconds and are
-    converted to seconds.  Returns ``0.0`` if the input is empty or
-    unparseable.
+    Polymarket CLOB WebSocket sends timestamps as milliseconds since
+    epoch.  This function converts to seconds by dividing by 1000.
+    Returns ``0.0`` if the input is empty or unparseable.
     """
     if not ts_str:
         return 0.0
     try:
-        val = float(ts_str)
-        if val > 1e10:
-            val /= 1000.0
-        return val
+        return float(ts_str) / 1000.0
     except (ValueError, TypeError):
         pass
     try:

@@ -68,7 +68,6 @@
 
     function formatTime(epoch) {
       if (!epoch || epoch === 0) return '\u2014';
-      if (epoch > 1e10) epoch = epoch / 1000;
       var d = new Date(epoch * 1000);
       return d.toLocaleTimeString();
     }

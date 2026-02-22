@@ -21,7 +21,7 @@ from feedManager.impl.PolymarketDataFeed import (
 SAMPLE_BOOK = {
     "event_type": "book",
     "asset_id": "abc123",
-    "timestamp": "1700000000.0",
+    "timestamp": "1700000000000",
     "bids": [
         {"price": "0.55", "size": "100"},
         {"price": "0.50", "size": "200"},
@@ -81,7 +81,7 @@ def test_fetch_returns_most_recent_message():
     second = json.dumps({
         "event_type": "book",
         "asset_id": "abc123",
-        "timestamp": "1700000001.0",
+        "timestamp": "1700000001000",
         "bids": [{"price": "0.70", "size": "50"}],
         "asks": [{"price": "0.75", "size": "60"}],
     })
@@ -221,13 +221,16 @@ def test_weighted_mid_zero_volume():
 # _parse_timestamp
 # ---------------------------------------------------------------------------
 
-def test_parse_timestamp_float_string():
-    assert _parse_timestamp("1700000000.0") == 1700000000.0
+def test_parse_timestamp_ms_to_seconds():
+    """Polymarket sends ms — _parse_timestamp must divide by 1000."""
+    assert _parse_timestamp("1700000000000") == pytest.approx(1700000000.0)
+    assert _parse_timestamp("1700000000123") == pytest.approx(1700000000.123, rel=1e-6)
 
 
 def test_parse_timestamp_iso():
     result = _parse_timestamp("2023-11-14T22:13:20Z")
-    assert result > 0
+    assert result > 1_000_000_000
+    assert result < 2_000_000_000
 
 
 def test_parse_timestamp_empty():
@@ -239,46 +242,18 @@ def test_parse_timestamp_garbage():
     assert _parse_timestamp("not-a-date") == 0.0
 
 
-def test_parse_timestamp_milliseconds_converted_to_seconds():
-    """Timestamps above 1e10 are assumed to be milliseconds and divided by 1000."""
-    ms_ts = "1700000000000"
-    result = _parse_timestamp(ms_ts)
-    assert result == pytest.approx(1700000000.0)
-
-
-def test_parse_timestamp_milliseconds_with_decimals():
-    """Millisecond timestamps with sub-ms precision are converted correctly."""
-    ms_ts = "1700000000123.456"
-    result = _parse_timestamp(ms_ts)
-    assert result == pytest.approx(1700000000.123456, rel=1e-6)
-
-
-def test_parse_timestamp_seconds_not_converted():
-    """Timestamps already in seconds (below 1e10) are returned as-is."""
-    assert _parse_timestamp("1700000000.0") == 1700000000.0
-    assert _parse_timestamp("1700000000") == 1700000000.0
-
-
-def test_parse_timestamp_iso_not_affected_by_ms_check():
-    """ISO timestamps go through fromisoformat, not the ms conversion path."""
-    result = _parse_timestamp("2023-11-14T22:13:20Z")
-    assert result > 1_000_000_000
-    assert result < 2_000_000_000
-
-
-def test_parse_order_book_normalizes_ms_timestamp():
-    """parse_order_book produces seconds-precision timestamps from ms input."""
-    event_ms = {
+def test_parse_order_book_converts_ms_timestamp():
+    """End-to-end: ms timestamp in WS event becomes seconds in snapshot."""
+    event = {
         "event_type": "book",
         "asset_id": "abc123",
         "timestamp": "1700000000000",
         "bids": [{"price": "0.55", "size": "100"}],
         "asks": [{"price": "0.60", "size": "150"}],
     }
-    result = parse_order_book(event_ms)
+    result = parse_order_book(event)
     assert result is not None
-    snap = result[0]
-    assert snap.timestamp == pytest.approx(1700000000.0)
+    assert result[0].timestamp == pytest.approx(1700000000.0)
 
 
 # ---------------------------------------------------------------------------
