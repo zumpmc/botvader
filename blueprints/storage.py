@@ -69,7 +69,13 @@ def api_storage_object():
         if not key:
             return jsonify({"error": "no key provided"}), 400
         try:
-            raw = _publisher.get(key)
+            # key comes from list_keys() which returns full S3 keys
+            # (e.g. "market-data/coinbase/..."). Strip the publisher
+            # prefix so publisher.get() doesn't double-prepend it.
+            relative_key = key
+            if _publisher._prefix and key.startswith(_publisher._prefix + "/"):
+                relative_key = key[len(_publisher._prefix) + 1:]
+            raw = _publisher.get(relative_key)
             data = json.loads(raw)
             return jsonify({"key": key, "data": data})
         except Exception as e:
