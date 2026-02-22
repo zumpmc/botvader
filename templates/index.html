@@ -38,52 +38,40 @@
       <a class="logout" href="/logout">logout</a>
     </div>
   </div>
-  <div class="section-title">feeds</div>
-  <div class="feeds" id="feeds">Loading...</div>
   <div class="section-title">feed managers</div>
   <div class="feeds" id="managers">Loading...</div>
   <script>
     async function loadAll() {
-      const [feedRes, mgrRes] = await Promise.all([
-        fetch('/api/feeds'),
-        fetch('/api/managers'),
-      ]);
-      if (feedRes.status === 401 || feedRes.redirected) { window.location = '/login'; return; }
-
-      const feeds = await feedRes.json();
-      const managers = await mgrRes.json();
-
-      renderCards(document.getElementById('feeds'), feeds, 'feed');
-      renderCards(document.getElementById('managers'), managers, 'manager');
+      var res = await fetch('/api/managers');
+      if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
+      var managers = await res.json();
+      renderCards(document.getElementById('managers'), managers);
     }
 
-    function renderCards(container, items, type) {
+    function renderCards(container, items) {
       container.innerHTML = '';
-      items.forEach(f => {
-        const div = document.createElement('div');
+      items.forEach(function(f) {
+        var div = document.createElement('div');
         div.className = 'feed';
-        const statusClass = 'status-' + f.health.status;
-        const msg = f.health.message ? ' \u2014 ' + f.health.message : '';
-        const linkHref = type === 'manager' ? '/manager/' + f.name : null;
-        const nameHtml = linkHref
-          ? '<a href="' + linkHref + '" class="feed-link">' + f.name + '</a>'
-          : f.name;
+        var statusClass = 'status-' + f.health.status;
+        var msg = f.health.message ? ' \u2014 ' + f.health.message : '';
+        var linkHref = '/manager/' + f.name;
+        var nameHtml = '<a href="' + linkHref + '" class="feed-link">' + f.name + '</a>';
         div.innerHTML =
           '<div class="feed-info">' +
             '<div class="feed-name"><span class="status ' + statusClass + '"></span>' + nameHtml + '</div>' +
             '<div class="feed-health">' + f.health.status + msg + '</div>' +
           '</div>' +
           '<button class="btn ' + (f.running ? 'btn-stop' : 'btn-start') + '"' +
-          ' onclick="toggle(\'' + type + '\', \'' + f.name + '\', ' + f.running + ')">' +
+          ' onclick="toggle(\'' + f.name + '\', ' + f.running + ')">' +
           (f.running ? 'Stop' : 'Start') + '</button>';
         container.appendChild(div);
       });
     }
 
-    async function toggle(type, name, running) {
-      const action = running ? 'stop' : 'start';
-      const base = type === 'manager' ? '/api/managers/' : '/api/feeds/';
-      await fetch(base + name + '/' + action, { method: 'POST' });
+    async function toggle(name, running) {
+      var action = running ? 'stop' : 'start';
+      await fetch('/api/managers/' + name + '/' + action, { method: 'POST' });
       loadAll();
     }
 

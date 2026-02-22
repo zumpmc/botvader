@@ -10,6 +10,7 @@ import threading
 import pytest
 
 from run import app, MANAGERS
+from feedManager.impl.BtcFeedManager import BtcFeedManager
 
 
 @pytest.fixture
@@ -28,9 +29,12 @@ def reset_managers():
         entry["running"] = False
         entry["thread"] = None
         mgr = entry["manager"]
-        with mgr._lock:
-            mgr._current_feed = None
-        mgr._stop_event.clear()
+        if isinstance(mgr, BtcFeedManager):
+            mgr._stop_event.clear()
+        else:
+            with mgr._lock:
+                mgr._current_feed = None
+            mgr._stop_event.clear()
     yield
     # Ensure nothing is left running
     for entry in MANAGERS.values():
@@ -50,10 +54,15 @@ class TestManagerDetailPage:
             assert res.status_code == 302
             assert "/login" in res.headers["Location"]
 
-    def test_renders_for_known_manager(self, client):
+    def test_renders_polymarket_manager(self, client):
         res = client.get("/manager/polymarket-btc-5m")
         assert res.status_code == 200
         assert b"polymarket-btc-5m" in res.data
+
+    def test_renders_btc_manager(self, client):
+        res = client.get("/manager/btc-data")
+        assert res.status_code == 200
+        assert b"btc-data" in res.data
 
     def test_unknown_manager_redirects(self, client):
         res = client.get("/manager/nonexistent")
@@ -70,6 +79,7 @@ class TestApiManagersList:
         assert res.status_code == 200
         data = res.get_json()
         names = [m["name"] for m in data]
+        assert "btc-data" in names
         assert "polymarket-btc-5m" in names
         assert "polymarket-btc-15m" in names
         assert "polymarket-btc-4h" in names
@@ -82,10 +92,51 @@ class TestApiManagersList:
             assert m["health"]["status"] == "stopped"
 
 
-# -- Detail API ------------------------------------------------------------
+# -- BTC Manager Detail API ------------------------------------------------
 
 
-class TestApiManagerDetail:
+class TestApiBtcManagerDetail:
+    def test_stopped_btc_manager(self, client):
+        res = client.get("/api/managers/btc-data")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["name"] == "btc-data"
+        assert data["type"] == "btc"
+        assert data["running"] is False
+        assert data["health"]["status"] == "stopped"
+        assert "feeds" in data
+        assert isinstance(data["feeds"], list)
+        assert len(data["feeds"]) == 4
+        assert data["total_messages"] == 0
+        assert data["total_errors"] == 0
+        assert data["tick_count"] == 0
+
+    def test_btc_feeds_have_expected_names(self, client):
+        res = client.get("/api/managers/btc-data")
+        data = res.get_json()
+        feed_names = [f["name"] for f in data["feeds"]]
+        assert "binance-btc-usd" in feed_names
+        assert "kraken-btc-usd" in feed_names
+        assert "coinbase-btc-usd" in feed_names
+        assert "chainlink-btc-usd" in feed_names
+
+    def test_btc_feed_fields(self, client):
+        res = client.get("/api/managers/btc-data")
+        data = res.get_json()
+        for feed in data["feeds"]:
+            assert "name" in feed
+            assert "connected" in feed
+            assert "message_count" in feed
+            assert "error_count" in feed
+            assert "lag_seconds" in feed
+            assert "health" in feed
+            assert "last_tick" in feed
+
+
+# -- Polymarket Manager Detail API -----------------------------------------
+
+
+class TestApiPolymarketManagerDetail:
     def test_unknown_manager_returns_404(self, client):
         res = client.get("/api/managers/nonexistent")
         assert res.status_code == 404
@@ -97,6 +148,7 @@ class TestApiManagerDetail:
         assert res.status_code == 200
         data = res.get_json()
         assert data["name"] == "polymarket-btc-5m"
+        assert data["type"] == "polymarket"
         assert data["running"] is False
         assert data["interval"] == "5m"
         assert data["lag_seconds"] is None
@@ -225,12 +277,34 @@ class TestApiManagerStartStop:
             # Wait for the thread to finish
             entry["thread"].join(timeout=2)
 
+    def test_start_btc_manager_sets_running(self, client):
+        entry = MANAGERS["btc-data"]
+
+        with patch.object(entry["manager"], "run", side_effect=lambda: time.sleep(0.1)):
+            res = client.post("/api/managers/btc-data/start")
+            assert res.status_code == 200
+            assert res.get_json()["ok"] is True
+            assert entry["running"] is True
+            assert entry["thread"] is not None
+
+            entry["thread"].join(timeout=2)
+
     def test_stop_sets_not_running(self, client):
         entry = MANAGERS["polymarket-btc-5m"]
         entry["running"] = True
 
         with patch.object(entry["manager"], "stop"):
             res = client.post("/api/managers/polymarket-btc-5m/stop")
+            assert res.status_code == 200
+            assert res.get_json()["ok"] is True
+            assert entry["running"] is False
+
+    def test_stop_btc_manager(self, client):
+        entry = MANAGERS["btc-data"]
+        entry["running"] = True
+
+        with patch.object(entry["manager"], "stop"):
+            res = client.post("/api/managers/btc-data/stop")
             assert res.status_code == 200
             assert res.get_json()["ok"] is True
             assert entry["running"] is False
