@@ -109,19 +109,28 @@ def _weighted_mid(bids, asks):
 
 
 def _parse_timestamp(ts_str):
-    """Parse timestamp string to float epoch. Falls back to current time if unparseable."""
+    """Parse timestamp string to a Unix epoch float in **seconds**.
+
+    Polymarket WebSocket events may send timestamps as milliseconds.
+    Values above ``1e10`` are assumed to be in milliseconds and are
+    converted to seconds.  Returns ``0.0`` if the input is empty or
+    unparseable.
+    """
     if not ts_str:
-        return time.time()
+        return 0.0
     try:
-        return float(ts_str)
+        val = float(ts_str)
+        if val > 1e10:
+            val /= 1000.0
+        return val
     except (ValueError, TypeError):
         pass
     try:
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         return dt.timestamp()
     except Exception:
-        logger.debug("Could not parse timestamp %r, using current time", ts_str)
-        return time.time()
+        logger.debug("Could not parse timestamp %r, returning 0.0", ts_str)
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
