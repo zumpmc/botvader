@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>botvader - {{ manager_name }}</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .header-left { display: flex; align-items: center; gap: 1rem; }
+    .back { color: #8b949e; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { color: #c9d1d9; }
+    h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
+    a.logout { color: #8b949e; text-decoration: none; }
+    a.logout:hover { color: #c9d1d9; }
+
+    .status-bar { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .status-left { display: flex; align-items: center; gap: 0.5rem; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+    .dot-ok { background: #3fb950; }
+    .dot-degraded { background: #d29922; }
+    .dot-down { background: #f85149; }
+    .dot-stopped { background: #484f58; }
+    .status-text { font-size: 1rem; font-weight: bold; }
+    .status-right { text-align: right; color: #8b949e; font-size: 0.85rem; }
+    .health-msg { color: #8b949e; font-size: 0.85rem; margin-top: 0.3rem; }
+
+    .metrics { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .metric { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; flex: 1; text-align: center; }
+    .metric-value { font-size: 1.6rem; font-weight: bold; color: #c9d1d9; }
+    .metric-label { font-size: 0.8rem; color: #8b949e; margin-top: 0.3rem; }
+
+    .order-book { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; }
+    .order-book h2 { margin: 0 0 0.8rem; font-size: 1rem; color: #58a6ff; }
+    .ob-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem 2rem; font-size: 0.9rem; }
+    .ob-label { color: #8b949e; }
+    .ob-value { color: #c9d1d9; font-weight: bold; }
+    .ob-empty { color: #484f58; font-style: italic; }
+
+    .samples { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; }
+    .samples h2 { margin: 0 0 0.8rem; font-size: 1rem; color: #58a6ff; }
+    .samples table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .samples th { text-align: left; color: #8b949e; padding: 0.4rem 0.6rem; border-bottom: 1px solid #30363d; }
+    .samples td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #21262d; }
+    .samples .empty { color: #484f58; font-style: italic; }
+
+    .actions { margin-top: 1rem; }
+    .btn { padding: 0.5rem 1.5rem; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 0.95rem; }
+    .btn-start { background: #238636; color: #fff; }
+    .btn-start:hover { background: #2ea043; }
+    .btn-stop { background: #da3633; color: #fff; }
+    .btn-stop:hover { background: #f85149; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <a class="back" href="/">&larr; dashboard</a>
+      <h1>{{ manager_name }}</h1>
+    </div>
+    <a class="logout" href="/logout">logout</a>
+  </div>
+
+  <div id="content">Loading...</div>
+
+  <script>
+    var MGR_NAME = "{{ manager_name }}";
+    var MAX_SAMPLES = 20;
+    var samples = [];
+
+    function formatTime(epoch) {
+      if (!epoch || epoch === 0) return '\u2014';
+      var d = new Date(epoch * 1000);
+      return d.toLocaleTimeString();
+    }
+
+    function formatNum(v, decimals) {
+      if (v == null) return '\u2014';
+      return Number(v).toFixed(decimals != null ? decimals : 4);
+    }
+
+    function formatLag(seconds) {
+      if (seconds == null) return '\u2014';
+      if (seconds < 1) return (seconds * 1000).toFixed(0) + 'ms';
+      if (seconds < 60) return seconds.toFixed(1) + 's';
+      return (seconds / 60).toFixed(1) + 'm';
+    }
+
+    async function loadManager() {
+      var res = await fetch('/api/managers/' + MGR_NAME);
+      if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
+      if (res.status === 404) { window.location = '/'; return; }
+      var f = await res.json();
+
+      // Accumulate order book snapshots client-side
+      if (f.last_data && f.last_data.timestamp) {
+        var isDuplicate = samples.length > 0 && samples[0].timestamp === f.last_data.timestamp;
+        if (!isDuplicate) {
+          samples.unshift(f.last_data);
+          if (samples.length > MAX_SAMPLES) samples.pop();
+        }
+      }
+
+      var statusClass = 'dot-' + f.health.status;
+      var statusLabel = f.health.status.toUpperCase();
+
+      // Order book section
+      var obHtml;
+      if (f.last_data) {
+        var d = f.last_data;
+        obHtml =
+          '<div class="ob-grid">' +
+            '<div><span class="ob-label">best bid</span><br><span class="ob-value">' + formatNum(d.best_bid) + '</span></div>' +
+            '<div><span class="ob-label">best ask</span><br><span class="ob-value">' + formatNum(d.best_ask) + '</span></div>' +
+            '<div><span class="ob-label">spread</span><br><span class="ob-value">' + formatNum(d.spread) + '</span></div>' +
+            '<div><span class="ob-label">mid price</span><br><span class="ob-value">' + formatNum(d.mid_price) + '</span></div>' +
+            '<div><span class="ob-label">weighted mid</span><br><span class="ob-value">' + formatNum(d.weighted_mid) + '</span></div>' +
+            '<div><span class="ob-label">imbalance</span><br><span class="ob-value">' + formatNum(d.imbalance) + '</span></div>' +
+            '<div><span class="ob-label">bid volume</span><br><span class="ob-value">' + formatNum(d.bid_volume, 0) + '</span></div>' +
+            '<div><span class="ob-label">ask volume</span><br><span class="ob-value">' + formatNum(d.ask_volume, 0) + '</span></div>' +
+            '<div><span class="ob-label">asset</span><br><span class="ob-value">' + (d.asset_id ? d.asset_id.substring(0, 12) + '...' : '\u2014') + '</span></div>' +
+          '</div>';
+      } else {
+        obHtml = '<div class="ob-empty">No order book data yet</div>';
+      }
+
+      // Samples table
+      var samplesRows;
+      if (samples.length === 0) {
+        samplesRows = '<tr><td colspan="6" class="empty">No data yet \u2014 waiting for snapshots...</td></tr>';
+      } else {
+        samplesRows = '';
+        for (var i = 0; i < samples.length; i++) {
+          var s = samples[i];
+          samplesRows +=
+            '<tr>' +
+            '<td>' + formatTime(s.timestamp) + '</td>' +
+            '<td>' + formatNum(s.best_bid) + '</td>' +
+            '<td>' + formatNum(s.best_ask) + '</td>' +
+            '<td>' + formatNum(s.spread) + '</td>' +
+            '<td>' + formatNum(s.mid_price) + '</td>' +
+            '<td>' + formatNum(s.imbalance) + '</td>' +
+            '</tr>';
+        }
+      }
+
+      document.getElementById('content').innerHTML =
+        '<div class="status-bar">' +
+          '<div>' +
+            '<div class="status-left">' +
+              '<span class="dot ' + statusClass + '"></span>' +
+              '<span class="status-text">' + statusLabel + '</span>' +
+            '</div>' +
+            '<div class="health-msg">' + (f.health.message || '') + '</div>' +
+          '</div>' +
+          '<div class="status-right">' +
+            'lag: ' + formatLag(f.lag_seconds) + '<br>' +
+            'snapshots: ' + f.snapshot_count.toLocaleString() +
+          '</div>' +
+        '</div>' +
+
+        '<div class="metrics">' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + f.message_count.toLocaleString() + '</div>' +
+            '<div class="metric-label">messages</div>' +
+          '</div>' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + f.error_count.toLocaleString() + '</div>' +
+            '<div class="metric-label">errors</div>' +
+          '</div>' +
+          '<div class="metric">' +
+            '<div class="metric-value">' + (f.connected ? 'yes' : 'no') + '</div>' +
+            '<div class="metric-label">connected</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="order-book">' +
+          '<h2>latest order book</h2>' +
+          obHtml +
+        '</div>' +
+
+        '<div class="samples">' +
+          '<h2>recent snapshots</h2>' +
+          '<table>' +
+            '<thead><tr><th>time</th><th>bid</th><th>ask</th><th>spread</th><th>mid</th><th>imbalance</th></tr></thead>' +
+            '<tbody>' + samplesRows + '</tbody>' +
+          '</table>' +
+        '</div>' +
+
+        '<div class="actions">' +
+          '<button class="btn ' + (f.running ? 'btn-stop' : 'btn-start') + '"' +
+          ' onclick="toggleManager(' + f.running + ')">' + (f.running ? 'Stop' : 'Start') + '</button>' +
+        '</div>';
+    }
+
+    async function toggleManager(running) {
+      var action = running ? 'stop' : 'start';
+      await fetch('/api/managers/' + MGR_NAME + '/' + action, { method: 'POST' });
+      if (action === 'stop') samples = [];
+      loadManager();
+    }
+
+    loadManager();
+    setInterval(loadManager, 3000);
+  </script>
+</body>
+</html>
