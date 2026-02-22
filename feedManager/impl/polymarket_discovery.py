@@ -85,6 +85,11 @@ def get_current_btc_15m_market():
     return _fetch_market("btc-updown-15m", 900)
 
 
+def get_current_btc_4h_market():
+    """Find the currently active BTC up/down 4-hour market."""
+    return _fetch_market("btc-updown-4h", 14400)
+
+
 def find_events(slug_contains, closed=False, limit=10):
     """General-purpose event search via the Gamma API."""
     try:

@@ -5,10 +5,11 @@ from unittest.mock import patch, MagicMock
 import httpx
 import pytest
 
-from dataFeed.impl.polymarket_discovery import (
+from feedManager.impl.polymarket_discovery import (
     _fetch_market,
     get_current_btc_5m_market,
     get_current_btc_15m_market,
+    get_current_btc_4h_market,
     find_events,
     GAMMA_API,
 )
@@ -56,7 +57,7 @@ def _mock_response(json_data, status_code=200):
 # _fetch_market — success
 # ---------------------------------------------------------------------------
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_first_active(mock_get):
     now = int(time.time())
     window = now - (now % 300)
@@ -74,7 +75,7 @@ def test_fetch_market_returns_first_active(mock_get):
     assert "polymarket.com" in result["url"]
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_tries_next_window(mock_get):
     now = int(time.time())
     window = now - (now % 300)
@@ -96,21 +97,21 @@ def test_fetch_market_tries_next_window(mock_get):
 # _fetch_market — failure paths
 # ---------------------------------------------------------------------------
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_none_on_http_error(mock_get):
     mock_get.side_effect = httpx.HTTPError("connection failed")
     result = _fetch_market("btc-updown-5m", 300)
     assert result is None
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_none_on_timeout(mock_get):
     mock_get.side_effect = httpx.TimeoutException("timed out")
     result = _fetch_market("btc-updown-5m", 300)
     assert result is None
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_none_on_invalid_json(mock_get):
     resp = MagicMock(spec=httpx.Response)
     resp.raise_for_status.return_value = None
@@ -120,7 +121,7 @@ def test_fetch_market_returns_none_on_invalid_json(mock_get):
     assert result is None
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_none_when_not_accepting(mock_get):
     now = int(time.time())
     window = now - (now % 300)
@@ -130,14 +131,14 @@ def test_fetch_market_returns_none_when_not_accepting(mock_get):
     assert result is None
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_returns_none_on_empty_events(mock_get):
     mock_get.return_value = _mock_response([])
     result = _fetch_market("btc-updown-5m", 300)
     assert result is None
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_fetch_market_handles_bad_clob_token_ids(mock_get):
     now = int(time.time())
     window = now - (now % 300)
@@ -153,7 +154,7 @@ def test_fetch_market_handles_bad_clob_token_ids(mock_get):
 # Public helpers
 # ---------------------------------------------------------------------------
 
-@patch("dataFeed.impl.polymarket_discovery._fetch_market")
+@patch("feedManager.impl.polymarket_discovery._fetch_market")
 def test_get_current_btc_5m_market(mock_fetch):
     mock_fetch.return_value = {"slug": "btc-updown-5m-123"}
     result = get_current_btc_5m_market()
@@ -161,7 +162,7 @@ def test_get_current_btc_5m_market(mock_fetch):
     assert result["slug"] == "btc-updown-5m-123"
 
 
-@patch("dataFeed.impl.polymarket_discovery._fetch_market")
+@patch("feedManager.impl.polymarket_discovery._fetch_market")
 def test_get_current_btc_15m_market(mock_fetch):
     mock_fetch.return_value = {"slug": "btc-updown-15m-456"}
     result = get_current_btc_15m_market()
@@ -169,11 +170,19 @@ def test_get_current_btc_15m_market(mock_fetch):
     assert result["slug"] == "btc-updown-15m-456"
 
 
+@patch("feedManager.impl.polymarket_discovery._fetch_market")
+def test_get_current_btc_4h_market(mock_fetch):
+    mock_fetch.return_value = {"slug": "btc-updown-4h-789"}
+    result = get_current_btc_4h_market()
+    mock_fetch.assert_called_once_with("btc-updown-4h", 14400)
+    assert result["slug"] == "btc-updown-4h-789"
+
+
 # ---------------------------------------------------------------------------
 # find_events
 # ---------------------------------------------------------------------------
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_find_events_returns_results(mock_get):
     events = [{"title": "BTC event", "slug": "btc-test"}]
     mock_get.return_value = _mock_response(events)
@@ -182,14 +191,14 @@ def test_find_events_returns_results(mock_get):
     mock_get.assert_called_once()
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_find_events_returns_empty_on_error(mock_get):
     mock_get.side_effect = httpx.HTTPError("fail")
     result = find_events("btc")
     assert result == []
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_find_events_returns_empty_on_invalid_json(mock_get):
     resp = MagicMock(spec=httpx.Response)
     resp.raise_for_status.return_value = None
@@ -199,7 +208,7 @@ def test_find_events_returns_empty_on_invalid_json(mock_get):
     assert result == []
 
 
-@patch("dataFeed.impl.polymarket_discovery.httpx.get")
+@patch("feedManager.impl.polymarket_discovery.httpx.get")
 def test_find_events_passes_params(mock_get):
     mock_get.return_value = _mock_response([])
     find_events("btc-updown", closed=True, limit=5)

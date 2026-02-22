@@ -6,7 +6,7 @@ import pytest
 
 from dataFeed.FeedHealth import FeedHealth, FeedStatus
 from dataFeed.struct.OrderBookMarketData import OrderBookMarketData
-from dataFeed.impl.PolymarketDataFeed import (
+from feedManager.impl.PolymarketDataFeed import (
     PolymarketDataFeed,
     parse_order_book,
     _weighted_mid,
@@ -335,7 +335,7 @@ def test_on_message_ignores_bad_json():
 # start / stop (mocked — no real WS)
 # ---------------------------------------------------------------------------
 
-@patch("dataFeed.impl.PolymarketDataFeed.WebSocketApp")
+@patch("feedManager.impl.PolymarketDataFeed.WebSocketApp")
 def test_start_stop_lifecycle(mock_ws_cls):
     mock_app = MagicMock()
     mock_app.run_forever = MagicMock(side_effect=lambda: time.sleep(0.1))
