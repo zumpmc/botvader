@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>death-star-farm - debug</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    h1 { margin: 0; color: #58a6ff; font-size: 1.4rem; }
+    .nav { display: flex; gap: 1rem; }
+    .nav a { color: #8b949e; text-decoration: none; }
+    .nav a:hover { color: #c9d1d9; }
+    .controls { margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; }
+    input { padding: 0.4rem 0.6rem; background: #161b22; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; font-family: monospace; font-size: 0.85rem; width: 300px; }
+    .log-container { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; max-height: 70vh; overflow-y: auto; font-size: 0.8rem; line-height: 1.5; }
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line.error { color: #f85149; }
+    .log-line.warning { color: #d29922; }
+    .log-line.info { color: #c9d1d9; }
+    .log-line.debug { color: #8b949e; }
+    .status { color: #8b949e; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>debug</h1>
+    <div class="nav">
+      <a href="/">dashboard</a>
+      <a href="/storage">storage</a>
+      <a href="/logout">logout</a>
+    </div>
+  </div>
+  <div class="controls">
+    <input type="text" id="filter" placeholder="filter logs..." oninput="renderLogs()">
+    <span class="status" id="status"></span>
+  </div>
+  <div class="log-container" id="logs"></div>
+  <script>
+    let allLines = [];
+    const container = document.getElementById('logs');
+    const filterInput = document.getElementById('filter');
+    const statusEl = document.getElementById('status');
+
+    function levelClass(line) {
+      if (line.includes('[ERROR]') || line.includes('[CRITICAL]')) return 'error';
+      if (line.includes('[WARNING]')) return 'warning';
+      if (line.includes('[DEBUG]')) return 'debug';
+      return 'info';
+    }
+
+    function renderLogs() {
+      const filter = filterInput.value.toLowerCase();
+      const filtered = filter ? allLines.filter(l => l.toLowerCase().includes(filter)) : allLines;
+      container.innerHTML = filtered.map(l =>
+        '<div class="log-line ' + levelClass(l) + '">' + l.replace(/</g, '&lt;') + '</div>'
+      ).join('');
+      container.scrollTop = container.scrollHeight;
+      statusEl.textContent = filtered.length + ' / ' + allLines.length + ' lines';
+    }
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/debug/logs?lines=500');
+        if (res.status === 401 || res.redirected) { window.location = '/login'; return; }
+        const data = await res.json();
+        allLines = data.lines;
+        renderLogs();
+      } catch (e) {
+        statusEl.textContent = 'error fetching logs';
+      }
+    }
+
+    fetchLogs();
+    setInterval(fetchLogs, 3000);
+  </script>
+</body>
+</html>
