@@ -231,12 +231,55 @@ def test_parse_timestamp_iso():
 
 
 def test_parse_timestamp_empty():
-    assert _parse_timestamp("") == 0.0
-    assert _parse_timestamp(None) == 0.0
+    now = time.time()
+    result_empty = _parse_timestamp("")
+    result_none = _parse_timestamp(None)
+    assert result_empty > 0
+    assert result_none > 0
+    assert abs(result_empty - now) < 1.0
+    assert abs(result_none - now) < 1.0
 
 
 def test_parse_timestamp_garbage():
-    assert _parse_timestamp("not-a-date") == 0.0
+    now = time.time()
+    result = _parse_timestamp("not-a-date")
+    assert result > 0
+    assert abs(result - now) < 1.0
+
+
+def test_parse_timestamp_fallback_is_current_time():
+    """Verify fallback timestamps are close to current wall-clock time."""
+    before = time.time()
+    empty_result = _parse_timestamp("")
+    garbage_result = _parse_timestamp("zzz")
+    after = time.time()
+    assert before <= empty_result <= after
+    assert before <= garbage_result <= after
+
+
+def test_parse_timestamp_valid_values_unchanged():
+    """Valid timestamps must be returned as-is, never replaced by current time."""
+    assert _parse_timestamp("1700000000.0") == 1700000000.0
+    result = _parse_timestamp("2023-11-14T22:13:20Z")
+    assert result > 1_000_000_000
+    assert result < 2_000_000_000
+
+
+def test_parse_order_book_uses_current_time_when_no_timestamp():
+    """Events without a timestamp field should get the current time, not 0.0."""
+    event_no_ts = {
+        "event_type": "book",
+        "asset_id": "abc123",
+        "bids": [{"price": "0.55", "size": "100"}],
+        "asks": [{"price": "0.60", "size": "150"}],
+    }
+    before = time.time()
+    result = parse_order_book(event_no_ts)
+    after = time.time()
+    assert result is not None
+    snap = result[0]
+    assert snap.timestamp > 0, "timestamp must not be 0.0"
+    assert before <= snap.timestamp <= after
 
 
 # ---------------------------------------------------------------------------

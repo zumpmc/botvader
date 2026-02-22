@@ -109,9 +109,9 @@ def _weighted_mid(bids, asks):
 
 
 def _parse_timestamp(ts_str):
-    """Parse timestamp string to float epoch. Returns 0.0 if unparseable."""
+    """Parse timestamp string to float epoch. Falls back to current time if unparseable."""
     if not ts_str:
-        return 0.0
+        return time.time()
     try:
         return float(ts_str)
     except (ValueError, TypeError):
@@ -120,8 +120,8 @@ def _parse_timestamp(ts_str):
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         return dt.timestamp()
     except Exception:
-        logger.debug("Could not parse timestamp %r, returning 0.0", ts_str)
-        return 0.0
+        logger.debug("Could not parse timestamp %r, using current time", ts_str)
+        return time.time()
 
 
 # ---------------------------------------------------------------------------
